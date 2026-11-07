@@ -137,7 +137,9 @@ class JobStatus(StrEnum):
 
 class JobView(BaseModel):
     jobId: str
-    analysisId: str
+    kind: Literal["analysis", "job_posting"] = "analysis"
+    analysisId: str | None = None
+    postingId: str | None = None
     status: JobStatus
     stage: Literal["queued", "extracting", "analyzing", "validating", "completed", "failed"]
     createdAt: datetime

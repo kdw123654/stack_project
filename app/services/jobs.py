@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import BoundedSemaphore, RLock
+from typing import Callable
 from uuid import uuid4
 
 from app.config import Settings
@@ -13,9 +14,11 @@ from app.schemas.analysis import (
     AcceptedAnalysis, AnalysisView, FileOutcome, JobStatus, JobView, Mode,
 )
 from app.schemas.document import ErrorDetail
+from app.schemas.job_posting import AcceptedPosting, PostingAnalysisView
 from app.services.analysis import analyze
 from app.services.documents import apply_ocr, parse_document
 from app.services.llm import LLM
+from app.services.job_posting import analyze_posting
 
 logger = logging.getLogger("stack.jobs")
 TERMINAL = {JobStatus.SUCCEEDED, JobStatus.PARTIAL_FAILED, JobStatus.FAILED}
@@ -38,6 +41,8 @@ class JobManager:
         self._jobs: dict[str, JobView] = {}
         self._results: dict[str, AnalysisView] = {}
         self._analyses: dict[str, str] = {}
+        self._posting_jobs: dict[str, str] = {}
+        self._posting_results: dict[str, PostingAnalysisView] = {}
         self._keys: dict[str, tuple[str, str]] = {}
 
     def close(self) -> None:
@@ -50,40 +55,60 @@ class JobManager:
                    and (now - job.updatedAt).total_seconds() >= self.settings.job_ttl_seconds}
         for job_id in expired:
             job = self._jobs.pop(job_id)
-            self._analyses.pop(job.analysisId, None)
-            self._results.pop(job.analysisId, None)
+            if job.analysisId:
+                self._analyses.pop(job.analysisId, None)
+                self._results.pop(job.analysisId, None)
+            if job.postingId:
+                self._posting_jobs.pop(job.postingId, None)
+                self._posting_results.pop(job.postingId, None)
         self._keys = {key: pair for key, pair in self._keys.items() if pair[1] not in expired}
 
     def submit(self, files: list[InputFile], mode: Mode, memo: str, target_job: str,
                idempotency_key: str | None) -> AcceptedAnalysis:
-        if not self.llm.configured:
-            raise AppError("LLM_NOT_CONFIGURED", ".env에 OPENAI_API_KEY를 설정해 주세요.", 503)
         fingerprint = hashlib.sha256(json.dumps({
-            "mode": mode.value, "memo": memo, "targetJob": target_job,
+            "kind": "analysis", "mode": mode.value, "memo": memo, "targetJob": target_job,
             "files": [(file.name, hashlib.sha256(file.content).hexdigest()) for file in files],
         }, ensure_ascii=False).encode()).hexdigest()
+        job = self._enqueue("analysis", fingerprint, idempotency_key, self._run, files, mode, memo, target_job)
+        return self._accepted(job)
+
+    def submit_posting(self, text: str, idempotency_key: str | None) -> AcceptedPosting:
+        if len(json.dumps({"text": text}, ensure_ascii=False)) > self.settings.max_context_characters:
+            raise AppError("CONTEXT_TOO_LARGE", "공고 본문이 너무 깁니다. 내용을 나누어 입력해 주세요.")
+        fingerprint = hashlib.sha256(json.dumps({"kind": "job_posting", "text": text}, ensure_ascii=False).encode()).hexdigest()
+        job = self._enqueue("job_posting", fingerprint, idempotency_key, self._run_posting, text)
+        return AcceptedPosting(jobId=job.jobId, postingId=job.postingId, status=job.status)
+
+    def _enqueue(self, kind: str, fingerprint: str, idempotency_key: str | None,
+                 worker: Callable, *args) -> JobView:
+        if not self.llm.configured:
+            raise AppError("LLM_NOT_CONFIGURED", ".env에 OPENAI_API_KEY를 설정해 주세요.", 503)
         with self._lock:
             self._purge()
             if idempotency_key and idempotency_key in self._keys:
                 old_fingerprint, job_id = self._keys[idempotency_key]
                 if old_fingerprint != fingerprint:
                     raise AppError("IDEMPOTENCY_CONFLICT", "같은 요청 키를 다른 입력에 사용할 수 없습니다.", 409)
-                return self._accepted(self._jobs[job_id])
+                return self._jobs[job_id].model_copy(deep=True)
             if len(self._jobs) >= self.settings.job_max_records or not self._slots.acquire(blocking=False):
                 raise AppError("QUEUE_FULL", "분석 작업이 많습니다. 잠시 후 다시 시도해 주세요.", 503)
             now = datetime.now(timezone.utc)
-            job = JobView(jobId=str(uuid4()), analysisId=str(uuid4()), status=JobStatus.QUEUED,
+            result_id = str(uuid4())
+            job = JobView(jobId=str(uuid4()), kind=kind,
+                          analysisId=result_id if kind == "analysis" else None,
+                          postingId=result_id if kind == "job_posting" else None, status=JobStatus.QUEUED,
                           stage="queued", createdAt=now, updatedAt=now)
             self._jobs[job.jobId] = job
-            self._analyses[job.analysisId] = job.jobId
+            mapping = self._analyses if kind == "analysis" else self._posting_jobs
+            mapping[result_id] = job.jobId
             if idempotency_key:
                 self._keys[idempotency_key] = (fingerprint, job.jobId)
-            accepted = self._accepted(job)
+            accepted = job.model_copy(deep=True)
             try:
-                self._pool.submit(self._run, job.jobId, files, mode, memo, target_job)
+                self._pool.submit(worker, job.jobId, *args)
             except RuntimeError:
                 self._jobs.pop(job.jobId)
-                self._analyses.pop(job.analysisId)
+                mapping.pop(result_id)
                 if idempotency_key:
                     self._keys.pop(idempotency_key)
                 self._slots.release()
@@ -117,6 +142,40 @@ class JobManager:
             self._jobs[job_id] = self._jobs[job_id].model_copy(update={
                 **changes, "updatedAt": datetime.now(timezone.utc),
             }, deep=True)
+
+    def get_posting_result(self, posting_id: str) -> PostingAnalysisView:
+        with self._lock:
+            self._purge()
+            job_id = self._posting_jobs.get(posting_id)
+            if not job_id:
+                raise AppError("POSTING_ANALYSIS_NOT_FOUND", "공고 분석이 없거나 보관 시간이 만료되었습니다.", 404)
+            if posting_id not in self._posting_results:
+                code = "POSTING_ANALYSIS_FAILED" if self._jobs[job_id].status == JobStatus.FAILED else "POSTING_ANALYSIS_NOT_READY"
+                raise AppError(code, "결과가 없습니다. 작업 상태와 오류를 확인해 주세요.", 409)
+            return self._posting_results[posting_id].model_copy(deep=True)
+
+    def _run_posting(self, job_id: str, text: str) -> None:
+        try:
+            self._update(job_id, status=JobStatus.RUNNING, stage="analyzing")
+            data, evidence, missing, warnings = analyze_posting(self.llm, self.settings, text, job_id)
+            self._update(job_id, stage="validating")
+            job = self.get_job(job_id)
+            view = PostingAnalysisView(
+                postingId=job.postingId, jobId=job_id, data=data, evidence=evidence,
+                missingFields=missing, needsManualQuestions=not data.questions, warnings=warnings,
+            )
+            with self._lock:
+                self._posting_results[job.postingId] = view
+                self._update(job_id, status=JobStatus.SUCCEEDED, stage="completed")
+        except AppError as exc:
+            self._update(job_id, status=JobStatus.FAILED, stage="failed",
+                         error=ErrorDetail(code=exc.code, message=exc.message))
+        except Exception:
+            logger.error("posting_analysis_failed job_id=%s", job_id)
+            self._update(job_id, status=JobStatus.FAILED, stage="failed",
+                         error=ErrorDetail(code="INTERNAL_ERROR", message="공고 분석 중 오류가 발생했습니다."))
+        finally:
+            self._slots.release()
 
     def _run(self, job_id: str, files: list[InputFile], mode: Mode, memo: str, target_job: str) -> None:
         try:

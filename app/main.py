@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.documents import router as documents_router
 from app.api.analyses import router as analyses_router
+from app.api.job_postings import router as job_postings_router
 from app.config import Settings
 from app.errors import AppError
 from app.services.jobs import JobManager
@@ -36,6 +37,7 @@ def create_app(settings: Settings | None = None, llm: LLM | None = None) -> Fast
     )
     application.include_router(documents_router)
     application.include_router(analyses_router)
+    application.include_router(job_postings_router)
     application.add_exception_handler(AppError, app_error_handler)
     application.add_exception_handler(RequestValidationError, validation_error_handler)
     application.add_api_route("/health", health, methods=["GET"], tags=["health"])
@@ -52,7 +54,7 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     return JSONResponse(
         status_code=422,
-        content={"error": {"code": "INVALID_REQUEST", "message": "요청의 파일·모드·입력 길이를 확인해 주세요."}},
+        content={"error": {"code": "INVALID_REQUEST", "message": "요청 본문·파일·모드·입력 길이를 확인해 주세요."}},
     )
 
 

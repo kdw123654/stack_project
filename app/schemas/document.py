@@ -14,6 +14,7 @@ class ExtractedDocument(BaseModel):
     pageCount: int = Field(ge=1)
     status: Literal["extracted", "partial", "needs_ocr"]
     pages: list[DocumentPage]
+    unit: Literal["page", "slide", "block", "image"] = "page"
 
 
 class ErrorDetail(BaseModel):

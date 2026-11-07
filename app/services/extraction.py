@@ -4,18 +4,15 @@ from pathlib import Path
 from pypdf import PdfReader
 from pypdf.errors import PyPdfError
 
+from app.errors import AppError
 from app.schemas.document import DocumentPage, ExtractedDocument
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_PAGES = 200
 
 
-class ExtractionError(Exception):
-    def __init__(self, code: str, message: str, status_code: int = 422):
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.status_code = status_code
+class ExtractionError(AppError):
+    pass
 
 
 def extract_pdf(content: bytes, filename: str) -> ExtractedDocument:

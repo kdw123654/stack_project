@@ -137,9 +137,10 @@ class JobStatus(StrEnum):
 
 class JobView(BaseModel):
     jobId: str
-    kind: Literal["analysis", "job_posting"] = "analysis"
+    kind: Literal["analysis", "job_posting", "cover_generate", "cover_regenerate", "portfolio_outline", "portfolio_generate", "experience_match", "competency_diagnose"] = "analysis"
     analysisId: str | None = None
     postingId: str | None = None
+    taskId: str | None = None
     status: JobStatus
     stage: Literal["queued", "extracting", "analyzing", "validating", "completed", "failed"]
     createdAt: datetime
@@ -161,3 +162,24 @@ class AnalysisView(BaseModel):
     evidence: StructuredAnalysis
     files: list[FileOutcome]
     warnings: list[str]
+    version: int = 1
+    sourceAnalysisId: str | None = None
+    aiEvidence: StructuredAnalysis | None = None
+    reviews: list[dict] = Field(default_factory=list)
+    assets: list[dict] = Field(default_factory=list)
+
+
+class RemodeRequest(StrictModel):
+    mode: Mode
+    memo: str = Field(default="", max_length=300)
+    targetJob: str = Field(default="", max_length=100)
+
+
+class FieldEdit(StrictModel):
+    path: str = Field(max_length=100, pattern=r"^(summary|sections\.\d+|skills\.\d+|owned\.\d+\.items\.\d+)$")
+    value: str | None = Field(max_length=10000)
+
+
+class AnalysisPatch(StrictModel):
+    expectedVersion: int = Field(ge=1)
+    edits: list[FieldEdit] = Field(min_length=1, max_length=100)

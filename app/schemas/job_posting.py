@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.schemas.analysis import JobStatus, StrictModel
 
@@ -49,7 +49,7 @@ class PostingQuestion(StrictModel):
     id: str
     no: int = Field(ge=1)
     title: str
-    limit: int | None
+    limit: int | None = Field(ge=1)
     countUnit: CountUnit
     includesSpaces: bool | None
     needsCheck: bool
@@ -60,6 +60,12 @@ class PostingData(StrictModel):
     job: str | None
     skills: list[str]
     questions: list[PostingQuestion]
+
+    @model_validator(mode="after")
+    def unique_questions(self):
+        if len({q.id for q in self.questions}) != len(self.questions):
+            raise ValueError("문항 ID는 중복될 수 없습니다.")
+        return self
 
 
 class AcceptedPosting(StrictModel):

@@ -1,0 +1,10 @@
+{
+  "targetJob": "백엔드 개발자",
+  "criteriaVersion": "team-draft-v1",
+  "criteriaSource": "팀이 정의한 예시 기준이며 공식 직무 기준이 아닙니다.",
+  "criteria": [
+    {"id":"python","name":"Python","aliases":["파이썬"],"minimumEvidence":1},
+    {"id":"sql","name":"SQL","minimumEvidence":1}
+  ],
+  "experiences": [{"id":"experience-1","title":"예시 프로젝트","summary":"Python API 개발","skills":["Python"]}]
+}

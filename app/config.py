@@ -19,3 +19,5 @@ class Settings(BaseSettings):
     max_context_characters: int = Field(default=80000, ge=100, le=200000)
     ocr_enabled: bool = True
     ocr_max_pages_per_file: int = Field(default=10, ge=1, le=50)
+    document_converter: str = ""
+    job_store_path: str = "data/jobs.sqlite3"

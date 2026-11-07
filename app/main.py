@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from app.api.documents import router as documents_router
 from app.api.analyses import router as analyses_router
 from app.api.job_postings import router as job_postings_router
+from app.api.career import router as career_router
 from app.config import Settings
 from app.errors import AppError
 from app.services.jobs import JobManager
@@ -32,12 +33,13 @@ def create_app(settings: Settings | None = None, llm: LLM | None = None) -> Fast
     application = FastAPI(
         title="STACK Backend A",
         description="문서 파싱·OpenAI 구조화 분석·비동기 Job. 단일 프로세스 로컬 개발용입니다.",
-        version="0.2.0",
+        version="0.3.0",
         lifespan=lifespan,
     )
     application.include_router(documents_router)
     application.include_router(analyses_router)
     application.include_router(job_postings_router)
+    application.include_router(career_router)
     application.add_exception_handler(AppError, app_error_handler)
     application.add_exception_handler(RequestValidationError, validation_error_handler)
     application.add_api_route("/health", health, methods=["GET"], tags=["health"])

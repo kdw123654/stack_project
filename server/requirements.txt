@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+supabase
+python-dotenv
+python-multipart
+httpx
+beautifulsoup4
+python-pptx

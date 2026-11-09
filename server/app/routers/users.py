@@ -2,8 +2,11 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
+from pydantic.alias_generators import to_camel
 
 from app.common import ApiError, CamelModel, camel_keys, now_iso, ok
+from app.config import ALLOWED_EMAIL_DOMAIN
 from app.db import db
 from app.deps import get_current_user
 from app.services.storage import remove_all_user_files
@@ -85,6 +88,31 @@ def update_consents(body: ConsentUpdate, user: dict = Depends(get_current_user))
     changes = body.model_dump(exclude_none=True)
     res = db.table("consents").update({**changes, "updated_at": now_iso()}).eq("user_id", user["id"]).execute()
     return ok(Consents.model_validate(res.data[0]).model_dump(by_alias=True))
+
+
+@router.get("/users/me/school-verification")
+def school_verification(user: dict = Depends(get_current_user)):
+    auth_user = db.auth.admin.get_user_by_id(user["id"]).user
+    email = auth_user.email or ""
+    confirmed_at = auth_user.email_confirmed_at
+    return ok({"verified": email.endswith("@" + ALLOWED_EMAIL_DOMAIN) and confirmed_at is not None,
+               "schoolEmail": email,
+               "verifiedAt": confirmed_at,
+               "studentId": get_profile(user["id"])["studentId"]})
+
+
+EXPORT_TABLES = ["consents", "files", "experiences", "job_postings", "cover_letters", "portfolios",
+                 "senior_questions"]
+
+
+@router.get("/users/me/data-export")
+def data_export(user: dict = Depends(get_current_user)):
+    data = {"exportedAt": now_iso(), "profile": get_profile(user["id"])}
+    for table in EXPORT_TABLES:
+        rows = db.table(table).select("*").eq("user_id", user["id"]).execute().data
+        data[to_camel(table)] = camel_keys(rows)
+    return JSONResponse(content=ok(data),
+                        headers={"Content-Disposition": 'attachment; filename="stack-my-data.json"'})
 
 
 @router.delete("/users/me")

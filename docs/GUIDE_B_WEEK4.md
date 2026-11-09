@@ -6,7 +6,8 @@
 >
 > **시작 상태:** 3주차(공고·자소서·포트폴리오)가 끝났어요.
 >
-> **이번 주에 직접 칠 파일:** `routers/home.py` 하나, 그리고 `main.py`에 `home`을 추가하는 것. `routers/explore.py`는 이미 쳐 두셨고, 실제 Supabase에서 돌려 보니 정상 동작해요.
+> **업데이트:** 요청에 따라 `routers/home.py`와 `main.py` 등록까지 코드를 채워 뒀어요. 아래 설명은 읽고 테스트만 하면 돼요.
+> 그리고 명세표에 남아 있던 B 기능 3개(학교 인증 상태, 내 데이터 내려받기, 스펙 비교 통계)도 추가했어요. 맨 아래 **"추가 API"** 절을 보세요.
 
 ## 이 문서 읽는 법
 
@@ -343,6 +344,40 @@ main
 - **무료 플랜:** 일정 시간 요청이 없으면 서버가 잠들어서, 첫 요청이 30초쯤 걸릴 수 있어요. 발표 전에 한 번 깨워 두세요.
 
 ---
+
+## 추가 API (US-02, US-06, CM-02)
+
+| ID | API | 하는 일 | 파일 |
+|---|---|---|---|
+| US-02 | `GET /users/me/school-verification` | 학교 메일(`@suwon.ac.kr`)로 인증을 마쳤는지, 인증 시각, 학번 | `routers/users.py` |
+| US-06 | `GET /users/me/data-export` | 내 데이터(프로필·동의·파일 목록·경험·공고·자소서·포폴·질문)를 JSON 파일로 내려받기 | `routers/users.py` |
+| CM-02 | `GET /competency-map/comparison` | 목표 기업(없으면 목표 직무) 입사 선배들의 입사 스펙 TOP 10, 선배 중 비율(%), 내가 가진 것인지 | `routers/competency.py` |
+
+**US-02 학교 인증 상태**
+- 📖 `db.auth.admin.get_user_by_id(...)`: Supabase Auth에 저장된 계정 정보에서 이메일 인증 시각(`email_confirmed_at`)을 꺼내요.
+- 🤔 인증 여부를 profiles에 따로 저장하지 않아요. Auth가 이미 정확한 값을 갖고 있는데 따로 저장하면 두 값이 어긋날 수 있어서예요(단일 원천, single source of truth).
+
+**US-06 내 데이터 내려받기**
+- 📖 `Content-Disposition: attachment` 헤더를 붙이면 브라우저가 화면에 보여 주지 않고 `stack-my-data.json` 파일로 저장해요.
+- 🏢 개인정보보호법상 "내 정보 열람·전송 요구권" 대응 기능이에요. 회사에서는 보통 데이터가 많아서 비동기 작업으로 만들고 메일로 링크를 보내요. 우리 규모에서는 바로 내려줘도 충분해요.
+- ⚠️ A의 AI 작업 기록(A 서버의 sqlite)은 아직 포함되지 않아요. A와 합칠 때 A의 `/ai-data/export` 결과를 여기에 붙이면 돼요.
+
+**CM-02 스펙 비교**
+- 📖 선배를 찾는 순서는 ① 목표 기업 이름이 들어간 선배, ② 없으면 목표 직무가 직무명·직무 분류에 들어간 선배예요. `basis`가 `COMPANY` / `JOB` / `null`로 알려 줘요.
+- 📖 `Counter(...).most_common(10)`: 선배들 입사 스펙을 다 모아서 많이 나온 순서로 10개를 뽑아요.
+- 📖 `mine`: 내 경험의 태그·스킬에 그 스펙이 들어 있으면 true예요. `"TOEIC 870"` ↔ `"toeic"`처럼 한쪽이 다른 쪽을 포함하면 같다고 봐요(대소문자 무시).
+- 🤔 `.or_(...)` 필터에 사용자가 쓴 글자를 넣기 전에 `,` `(` `)` `%` 같은 글자를 지워요. 이 글자들은 Supabase 필터 문법이라, 그대로 넣으면 쿼리가 깨지거나 의도와 다르게 동작해요(일종의 인젝션 방어).
+
+**테스트 (실제 Supabase, 7/7 통과)**
+
+| API | 확인한 것 |
+|---|---|
+| `GET /programs/recommended` | 로그인 없이도 200 |
+| `GET /home` | 프로필(학번), 최근 파일, 프로그램 |
+| `GET /users/me/school-verification` | `verified: true` |
+| `GET /users/me/data-export` | 파일 다운로드 헤더, 테이블 7개 + 프로필 |
+| `GET /competency-map/comparison` | 목표 기업 "네이버" → `COMPANY` 기준 / 없는 회사 + 직무 "프론트엔드, (개발)" → `JOB` 기준 / 맞는 선배 없음 → 0명 |
+| 로그인 없이 `/home`, `/competency-map/comparison` | 401 |
 
 ## 프론트에 알려줄 것
 

@@ -1,3 +1,29 @@
+# STACK Backend (A + B)
+
+이 브랜치에는 백엔드 서버 2개가 함께 있습니다. 하나로 합치는 작업(A의 AI 기능에 로그인·Supabase 저장 연결)은 아직 진행 전입니다.
+
+| 폴더 | 담당 | 내용 |
+|---|---|---|
+| `server/` | B | FastAPI + Supabase: 로그인(학교 이메일·학번), 내 정보, 파일, 경험 DB, 공고·자소서·포폴 저장, PPTX 내보내기, 탐색, 홈 — API는 `/api/v1/...` |
+| `app/` (루트) | A | FastAPI + OpenAI: 문서 추출, AI 분석, 공고 분석, 경험 추천, 자소서·포폴 생성, 역량 진단 |
+
+### B 서버 실행 (`server/`)
+
+```bash
+cd server
+python -m venv .venv
+.venv\Scripts\Activate.ps1        # macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+# server/.env 에 SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY 설정 (.env는 커밋 금지)
+uvicorn app.main:app --reload
+```
+
+- DB 만들기: Supabase SQL Editor에서 `server/sql/01_schema.sql` → `02_seed.sql` → `03_student_login.sql` 순서로 실행
+- API 문서: http://127.0.0.1:8000/docs
+- 구현 가이드: `docs/GUIDE_B*.md`
+
+---
+
 # STACK Backend A
 
 FastAPI 기반 문서 파싱·OpenAI 분석·비동기 Job 서비스입니다. 경험 분석·수정·재분석, 공고 분석, 경험 추천, 자소서 생성·재생성, 포트폴리오 구성·내용 생성, 역량 진단을 지원합니다. B의 사용자/경험 DB 없이 JSON 입력으로 실행할 수 있습니다. 현재 단일 프로세스 개발용이며, 인증·마스터 DB·스토리지·실제 파일 출력은 B와 연결해야 합니다.

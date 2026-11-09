@@ -1,0 +1,18 @@
+{
+  "posting": {
+    "company": "예시 회사",
+    "job": "백엔드 개발자",
+    "skills": ["Python", "FastAPI"],
+    "questions": [{"id":"q1","no":1,"title":"개발 경험을 설명해 주세요.","limit":500,"countUnit":"characters","includesSpaces":true,"needsCheck":false}]
+  },
+  "experiences": [{
+    "id": "experience-1",
+    "title": "예시 API 프로젝트",
+    "summary": "Python과 FastAPI로 API를 개발했습니다.",
+    "role": "백엔드 개발",
+    "period": "",
+    "achievements": [],
+    "skills": ["Python", "FastAPI"],
+    "assets": []
+  }]
+}

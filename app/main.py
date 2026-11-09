@@ -9,6 +9,7 @@ from app.api.documents import router as documents_router
 from app.api.analyses import router as analyses_router
 from app.api.job_postings import router as job_postings_router
 from app.api.career import router as career_router
+from app.api.ai_data import router as ai_data_router
 from app.config import Settings
 from app.errors import AppError
 from app.services.jobs import JobManager
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None, llm: LLM | None = None) -> Fast
     application.include_router(analyses_router)
     application.include_router(job_postings_router)
     application.include_router(career_router)
+    application.include_router(ai_data_router)
     application.add_exception_handler(AppError, app_error_handler)
     application.add_exception_handler(RequestValidationError, validation_error_handler)
     application.add_api_route("/health", health, methods=["GET"], tags=["health"])

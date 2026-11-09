@@ -56,9 +56,12 @@ class JobStore:
                 ))
 
     def delete(self, job_id):
+        self.delete_many([job_id])
+
+    def delete_many(self, job_ids):
         if self.connection is not None:
             with self._lock, self.connection:
-                self.connection.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+                self.connection.executemany("DELETE FROM jobs WHERE id=?", [(job_id,) for job_id in job_ids])
 
     def close(self):
         if self.connection is not None:

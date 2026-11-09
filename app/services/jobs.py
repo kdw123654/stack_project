@@ -28,9 +28,11 @@ from app.services.career import checked_payload, generate_cover, generate_outlin
 from app.services.analysis import to_output
 from app.services.job_store import JobStore
 from app.schemas.document import ExtractedDocument
+from app.schemas.ai_data import DataDeletion, DataExport, ExportedJob
 
 logger = logging.getLogger("stack.jobs")
 TERMINAL = {JobStatus.SUCCEEDED, JobStatus.PARTIAL_FAILED, JobStatus.FAILED}
+MAX_EXPORT_IMAGE_BYTES = 20 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -126,8 +128,12 @@ class JobManager:
         expired = {job_id for job_id, job in self._jobs.items()
                    if job.status in TERMINAL
                    and (now - job.updatedAt).total_seconds() >= self.settings.job_ttl_seconds}
-        for job_id in expired:
-            self._store.delete(job_id)
+        if expired:
+            self._store.delete_many(expired)
+            self._discard_jobs(expired)
+
+    def _discard_jobs(self, job_ids):
+        for job_id in job_ids:
             job = self._jobs.pop(job_id)
             if job.analysisId:
                 self._analyses.pop(job.analysisId, None)
@@ -140,7 +146,56 @@ class JobManager:
             if job.taskId:
                 self._task_jobs.pop(job.taskId, None)
                 self._task_results.pop(job.taskId, None)
-        self._keys = {key: pair for key, pair in self._keys.items() if pair[1] not in expired}
+        self._keys = {key: pair for key, pair in self._keys.items() if pair[1] not in job_ids}
+
+    def export_jobs(self, job_ids: list[str], include_images: bool = False) -> DataExport:
+        with self._lock:
+            self._purge()
+            records, missing = [], []
+            image_bytes = 0
+            for job_id in job_ids:
+                job = self._jobs.get(job_id)
+                if job is None:
+                    missing.append(job_id)
+                    continue
+                result = (self._results.get(job.analysisId) if job.analysisId else
+                          self._posting_results.get(job.postingId) if job.postingId else
+                          self._task_results.get(job.taskId))
+                context = self._contexts.get(job.analysisId)
+                assets = []
+                if context:
+                    for asset in context.assets.values():
+                        exported = deepcopy(asset["metadata"])
+                        if include_images:
+                            image_bytes += len(asset["content"])
+                            if image_bytes > MAX_EXPORT_IMAGE_BYTES:
+                                raise AppError("EXPORT_TOO_LARGE", "이미지 내보내기 한도(20MiB)를 초과했습니다. 작업을 나누어 요청해 주세요.", 413)
+                            exported["contentBase64"] = base64.b64encode(asset["content"]).decode("ascii")
+                        assets.append(exported)
+                records.append(ExportedJob(
+                    job=job.model_copy(deep=True), result=result.model_dump(mode="json") if result is not None else None,
+                    versions=[view.model_dump(mode="json") for view in self._history.get(job.analysisId, [])],
+                    documents={key: doc.model_dump(mode="json") for key, doc in context.documents.items()} if context else {},
+                    ocrSources=[{"fileId": file_id, "page": page} for file_id, page in sorted(context.ocr_sources)] if context else [],
+                    assets=assets,
+                ))
+            return DataExport(exportedAt=datetime.now(timezone.utc), imagesIncluded=include_images,
+                              records=records, missingJobIds=missing)
+
+    def delete_jobs(self, job_ids: list[str]) -> DataDeletion:
+        with self._lock:
+            self._purge()
+            found = [job_id for job_id in job_ids if job_id in self._jobs]
+            missing = [job_id for job_id in job_ids if job_id not in self._jobs]
+            if any(self._jobs[job_id].status not in TERMINAL for job_id in found):
+                raise AppError("JOBS_STILL_ACTIVE", "대기·실행 중인 작업이 있습니다. 완료 후 다시 삭제해 주세요. 요청한 작업은 삭제하지 않았습니다.", 409)
+            try:
+                self._store.delete_many(found)
+            except (sqlite3.Error, OSError):
+                raise AppError("JOB_STORAGE_ERROR", "작업 데이터 삭제에 실패했습니다. 다시 시도해 주세요.", 503) from None
+            # Remove cache only after the transaction succeeds, keeping disk and memory consistent.
+            self._discard_jobs(found)
+            return DataDeletion(deletedJobIds=found, missingJobIds=missing)
 
     def submit(self, files: list[InputFile], mode: Mode, memo: str, target_job: str,
                idempotency_key: str | None) -> AcceptedAnalysis:

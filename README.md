@@ -85,8 +85,11 @@ curl -X POST http://127.0.0.1:8000/job-postings/analyze \
 | 분석 결과 수정·이력 | `PATCH /analyses/{id}/result`, `GET /analyses/{id}/versions` |
 | 다른 모드 재분석 | `POST /analyses/{id}/remode` |
 | 마스터 경험 저장용 DTO | `GET /analyses/{id}/experience-export` |
+| AI 작업 데이터 내보내기·삭제 | `POST /ai-data/export`, `POST /ai-data/delete` |
 
 생성 API는 `202 {jobId, taskId, status}`를 반환합니다. Job 폴링/SSE 이후 `GET /ai-results/{taskId}`로 결과를 조회합니다. 동기 태그 계산 API는 즉시 JSON을 반환합니다. 자료 부족은 역량 부족으로 단정하지 않으며, 진단 기준은 호출자가 출처·버전과 함께 제공해야 합니다.
+
+AI 데이터 내보내기·삭제는 `{ "jobIds": ["실제 작업 ID"] }`를 받습니다(1~20개). 내보내기에는 결과·출처·수정 이력과 선택적 이미지가 포함됩니다. 삭제는 완료/실패 작업만 가능하며 대기/실행 중인 작업이 섞이면 전체 요청을 409로 거절합니다. B가 사용자 소유권을 확인한 작업 ID 목록을 전달해야 하며, 현재 A가 사용자 소유권을 검사하는 API는 아닙니다. 상세 정책은 [독립 API 명세](docs/INDEPENDENT_API.md)의 데이터 관리 항목을 참고합니다.
 
 ## 현재 지원 범위와 제한
 

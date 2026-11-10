@@ -76,6 +76,7 @@ create table cover_letters (
   status text not null default 'SELECTING',
   selections jsonb not null default '[]',
   answers jsonb not null default '[]',
+  ai_imports jsonb not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

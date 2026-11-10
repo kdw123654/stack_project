@@ -9,7 +9,7 @@ from app.deps import get_current_user
 from app.routers.job_postings import get_own_posting
 from app.services.pptx_render import build_file
 from app.services.storage import signed_url, upload_bytes
-from app.schemas.generated import SlidesImport
+from app.schemas.generated import SlidesImport, SingleSlideImport
 from app.services.generated import check_replay, convert_slides, payload_hash, persist_import
 
 router = APIRouter(tags=["portfolios"])
@@ -95,6 +95,31 @@ def reorder_outline(pf_id: str, body: OutlineUpdate, user: dict = Depends(get_cu
     get_own_pf(pf_id, user["id"])
     outline = [{**s, "slideNo": i + 1} for i, s in enumerate(body.outline)]  # 번호 다시 매김
     return ok(update_pf(pf_id, {"outline": outline}))
+
+
+@router.put("/portfolios/{pf_id}/slides/{slide_no}/generated")
+def import_single_slide(pf_id: str, slide_no: int, body: SingleSlideImport, user: dict = Depends(get_current_user)):
+    pf = get_own_pf(pf_id, user["id"])
+    if check_replay(pf, body.sourceTaskId, payload_hash(body)):
+        return ok({**to_api(pf), "sourceTaskId": body.sourceTaskId, "reused": True})
+    position = next((i for i, s in enumerate(pf["slides"]) if s["slideNo"] == slide_no), None)
+    if position is None:
+        raise ApiError(404, "SLIDE_NOT_FOUND", "해당 슬라이드가 없습니다.")
+    if pf["slides"][position].get("id") != body.slide.id:
+        raise ApiError(409, "SLIDE_ID_MISMATCH", "슬라이드 순서나 ID가 바뀌었습니다. 다시 조회해 주세요.")
+    converted, outline, _ = convert_slides(body, user["id"])
+    converted[0]["slideNo"] = slide_no
+    slides = list(pf["slides"])
+    slides[position] = converted[0]
+    new_outline = [dict(s) for s in pf["outline"]]
+    for item in new_outline:
+        if item.get("id") == body.slide.id or item.get("slideNo") == slide_no:
+            item.update({**outline[0], "slideNo": slide_no})
+    refs = sorted({ref for s in slides for ref in s.get("sourceExperienceIds", [])})
+    row, reused = persist_import("portfolios", pf, user["id"], body,
+                                 {"slides": slides, "outline": new_outline, "experience_ids": refs, "export_path": None})
+    return ok({**to_api(row), "sourceTaskId": body.sourceTaskId, "reused": reused})
+
 
 
 @router.patch("/portfolios/{pf_id}/slides/{slide_no}")

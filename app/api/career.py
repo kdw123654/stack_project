@@ -6,6 +6,7 @@ from app.api.analyses import get_manager
 from app.schemas.career import (
     AcceptedTask, DiagnosisRequest, DraftRequest, MatchRequest, OutlineRequest,
     PortfolioRequest, RegenerateRequest, TaskResult,
+    SlideRegenerateRequest,
 )
 from app.services.career import checked_payload, diagnose, recommend
 from app.services.jobs import JobManager
@@ -63,6 +64,11 @@ def portfolio_generate(payload: PortfolioRequest, response: Response, manager: M
 @router.get("/ai-results/{task_id}", response_model=TaskResult)
 def get_result(task_id: str, manager: Manager):
     return manager.get_task_result(task_id)
+
+
+@router.post("/portfolios/slides/{slide_id}/regenerate", response_model=AcceptedTask, status_code=202)
+def slide_regenerate(slide_id: str, payload: SlideRegenerateRequest, response: Response, manager: Manager, idempotency_key: Key = None):
+    return accept(manager, "portfolio_regenerate", payload, response, idempotency_key, slide_id)
 
 
 @router.post("/cover-letters/recommended-experiences/semantic", response_model=AcceptedTask, status_code=202)

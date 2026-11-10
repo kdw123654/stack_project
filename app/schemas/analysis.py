@@ -137,7 +137,7 @@ class JobStatus(StrEnum):
 
 class JobView(BaseModel):
     jobId: str
-    kind: Literal["analysis", "job_posting", "cover_generate", "cover_regenerate", "portfolio_outline", "portfolio_generate", "experience_match", "competency_diagnose"] = "analysis"
+    kind: Literal["analysis", "job_posting", "cover_generate", "cover_regenerate", "portfolio_outline", "portfolio_generate", "portfolio_regenerate", "experience_match", "competency_diagnose"] = "analysis"
     analysisId: str | None = None
     postingId: str | None = None
     taskId: str | None = None

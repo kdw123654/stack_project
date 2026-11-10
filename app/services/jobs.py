@@ -304,7 +304,9 @@ class JobManager:
         if isinstance(payload, DraftRequest):
             if not payload.posting.questions or question_id is not None and question_id not in {q.id for q in payload.posting.questions}:
                 raise AppError("QUESTIONS_REQUIRED", "생성할 문항을 확인해 주세요.")
-        if kind not in ("cover_generate", "cover_regenerate", "portfolio_outline", "portfolio_generate", "experience_match", "competency_diagnose"):
+        if kind == "portfolio_regenerate" and payload.slide.id != question_id:
+            raise AppError("SLIDE_ID_MISMATCH", "재생성 대상 슬라이드 ID가 다릅니다.")
+        if kind not in ("cover_generate", "cover_regenerate", "portfolio_outline", "portfolio_generate", "portfolio_regenerate", "experience_match", "competency_diagnose"):
             raise AppError("INVALID_TASK_KIND", "지원하지 않는 작업입니다.")
         fingerprint = hashlib.sha256(json.dumps({"kind": kind, "payload": payload.model_dump(), "questionId": question_id}, ensure_ascii=False).encode()).hexdigest()
         job = self._enqueue(kind, fingerprint, key, self._run_career, kind, payload.model_copy(deep=True), question_id)

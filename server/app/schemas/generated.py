@@ -132,3 +132,11 @@ class SlidesImport(ResultImport):
         if len(self.slides) != self.size or len({s.id for s in self.slides}) != self.size:
             raise ValueError("슬라이드 개수와 고유 ID가 분량과 일치해야 합니다.")
         return self
+
+
+class SingleSlideImport(ResultImport):
+    slide: AISlide
+
+    @property
+    def slides(self):
+        return [self.slide]

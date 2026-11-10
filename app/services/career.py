@@ -7,6 +7,7 @@ from app.schemas.career import (
     DiagnosisRequest, DraftRequest, Experience, GeneratedCover, GeneratedOutline,
     GeneratedPortfolio, MatchRequest, OutlineRequest, PortfolioRequest, RegenerateRequest,
     GeneratedMatches, GeneratedCompetencies,
+    SlideRegenerateRequest,
 )
 from app.services.analysis import normalize, numbers
 from app.services.llm import LLM
@@ -222,16 +223,20 @@ def generate_outline(llm: LLM, settings: Settings, request: OutlineRequest, requ
                                              for i, s in enumerate(raw.slides, 1)]}
 
 
-def generate_portfolio(llm: LLM, settings: Settings, request: PortfolioRequest, request_id: str) -> dict:
+def generate_portfolio(llm: LLM, settings: Settings, request: PortfolioRequest | SlideRegenerateRequest, request_id: str) -> dict:
     require_experiences(request)
-    raw = llm.parse(GeneratedPortfolio, GENERATION_RULES +
-                    "주어진 outline의 모든 슬라이드 ID에 대해 내용을 생성하세요. 각 슬라이드는 그 슬라이드에 연결된 경험만 사용합니다. metrics는 원문에 수치와 단위가 명시된 경우만, imageIds는 연결된 경험 assets의 ID만 사용하세요. 자료가 없으면 metrics/imageIds=[]입니다.",
+    single = isinstance(request, SlideRegenerateRequest)
+    plans = [request.slide] if single else request.outline
+    prompt = GENERATION_RULES + "주어진 구성안의 슬라이드 ID에 대해 내용을 생성하세요. 각 슬라이드는 연결된 경험만 사용합니다. metrics는 원문에 수치와 단위가 명시된 경우만, imageIds는 연결된 경험 assets의 ID만 사용하세요. 자료가 없으면 metrics/imageIds=[]입니다."
+    if single:
+        prompt += " 정확히 slide 한 장만 생성하세요. previousSlide는 보존할 이전 초안이며 사실 근거가 아닙니다. instructions는 경험 근거와 충돌하지 않는 범위에서 적용하세요."
+    raw = llm.parse(GeneratedPortfolio, prompt,
                     checked_payload(request, settings), request_id)
-    if len(raw.slides) != request.size or {s.slideId for s in raw.slides} != {s.id for s in request.outline}:
+    if len(raw.slides) != len(plans) or {s.slideId for s in raw.slides} != {s.id for s in plans}:
         raise AppError("INVALID_SLIDES", "생성 슬라이드가 구성안과 일치하지 않습니다.", 502)
     index = {e.id: e for e in request.experiences}
     output = []
-    for plan in request.outline:
+    for plan in plans:
         slide = next(s for s in raw.slides if s.slideId == plan.id)
         allowed = {key: index[key] for key in plan.sourceExperienceIds}
         if not slide.sentences:
@@ -259,4 +264,6 @@ def generate_portfolio(llm: LLM, settings: Settings, request: PortfolioRequest, 
                        "metrics": [m.model_dump() for m in slide.metrics], "imageIds": slide.imageIds,
                        "chartData": list(chart_groups.values()), "corePhrases": [s.text for s in slide.sentences],
                        "layout": "이미지 강조" if slide.imageIds else "지표 강조" if slide.metrics else "텍스트 강조"})
+    if single:
+        return {"slide": output[0], "previousSlide": request.previousSlide, "replacementApplied": False}
     return {"size": request.size, "slides": output}

@@ -161,6 +161,21 @@ class GeneratedMetric(StrictModel):
     source: Citation
 
 
+class SlideRegenerateRequest(CareerInput):
+    posting: PostingData
+    slide: SlideOutline
+    previousSlide: dict
+    instructions: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def valid_slide(self):
+        if not self.slide.sourceExperienceIds or not set(self.slide.sourceExperienceIds) <= {e.id for e in self.experiences}:
+            raise ValueError("슬라이드의 근거 경험을 확인해 주세요.")
+        if self.previousSlide.get("id") != self.slide.id:
+            raise ValueError("기존 슬라이드와 재생성 대상 ID가 다릅니다.")
+        return self
+
+
 class GeneratedSlide(StrictModel):
     slideId: str
     sentences: list[Sentence]

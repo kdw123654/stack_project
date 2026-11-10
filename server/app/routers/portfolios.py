@@ -9,6 +9,8 @@ from app.deps import get_current_user
 from app.routers.job_postings import get_own_posting
 from app.services.pptx_render import build_file
 from app.services.storage import signed_url, upload_bytes
+from app.schemas.generated import SlidesImport
+from app.services.generated import check_replay, convert_slides, payload_hash, persist_import
 
 router = APIRouter(tags=["portfolios"])
 
@@ -72,6 +74,20 @@ def list_mine(user: dict = Depends(get_current_user)):
 @router.get("/portfolios/{pf_id}")
 def detail(pf_id: str, user: dict = Depends(get_current_user)):
     return ok(to_api(get_own_pf(pf_id, user["id"])))
+
+
+@router.put("/portfolios/{pf_id}/slides")
+def import_slides(pf_id: str, body: SlidesImport, user: dict = Depends(get_current_user)):
+    pf = get_own_pf(pf_id, user["id"])
+    if check_replay(pf, body.sourceTaskId, payload_hash(body)):
+        return ok({**to_api(pf), "sourceTaskId": body.sourceTaskId, "reused": True})
+    expected = {"SHORT_6": 6, "BASIC_10": 10, "DETAIL_14": 14}[pf["length"]]
+    if body.size != expected:
+        raise ApiError(422, "SLIDE_COUNT_MISMATCH", "포트폴리오 프로젝트의 분량과 생성 결과가 다릅니다.")
+    slides, outline, ids = convert_slides(body, user["id"])
+    row, reused = persist_import("portfolios", pf, user["id"], body,
+                                 {"slides": slides, "outline": outline, "experience_ids": ids, "export_path": None})
+    return ok({**to_api(row), "sourceTaskId": body.sourceTaskId, "reused": reused})
 
 
 @router.put("/portfolios/{pf_id}/outline")

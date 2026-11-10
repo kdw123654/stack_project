@@ -99,3 +99,26 @@ def convert_answers(payload, posting: dict, user_id: str):
         selections.append({"questionId": answer.questionId, "questionOrder": question["order"], "experienceIds": sorted(refs)})
     require_owned_experiences(all_ids, user_id)
     return answers, selections
+
+
+def convert_slides(payload, user_id: str):
+    refs = {ref for slide in payload.slides for ref in slide.sourceExperienceIds}
+    for slide in payload.slides:
+        cited = {c.experienceId for sentence in slide.sentences for c in sentence.sources}
+        cited.update(metric.source.experienceId for metric in slide.metrics)
+        if not cited <= set(slide.sourceExperienceIds):
+            raise ApiError(422, "INVALID_SLIDE_SOURCE", "슬라이드 인용이 연결된 경험에 없습니다.")
+    require_owned_experiences(refs, user_id)
+    slides, outline = [], []
+    for number, slide in enumerate(payload.slides, 1):
+        value = slide.model_dump(mode="json")
+        layout = ("COVER" if slide.type == "표지" else "CLOSING" if slide.type == "마무리" else
+                  "RESULT_WITH_CHART" if slide.metrics else "PROJECT")
+        body = "\n".join(s.text for s in slide.sentences) if slide.sentences else "\n".join(slide.corePhrases)
+        metrics = [{**metric.model_dump(mode="json"), "numericValue": metric.value,
+                    "value": f"{metric.value:g}{metric.unit}"} for metric in slide.metrics]
+        slides.append({**value, "slideNo": number, "layout": layout, "aiLayout": slide.layout,
+                       "body": body, "metrics": metrics, "aiOriginal": deepcopy(value), "needsReview": True})
+        outline.append({"id": slide.id, "slideNo": number, "type": slide.type, "layout": layout,
+                        "title": slide.title, "sourceExperienceIds": slide.sourceExperienceIds})
+    return slides, outline, sorted(refs)

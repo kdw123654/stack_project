@@ -101,3 +101,34 @@ class AnswersImport(ResultImport):
         if len({a.questionId for a in self.answers}) != len(self.answers):
             raise ValueError("같은 문항의 답변이 중복되었습니다.")
         return self
+
+
+class AIMetric(ImportModel):
+    label: str = Field(max_length=500)
+    value: float = Field(allow_inf_nan=False)
+    unit: str = Field(max_length=100)
+    source: AICitation
+
+
+class AISlide(ImportModel):
+    id: str = Field(min_length=1, max_length=128)
+    type: Literal["표지", "소개", "프로젝트", "성과", "요약", "마무리"]
+    title: str = Field(min_length=1, max_length=500)
+    sourceExperienceIds: list[str] = Field(min_length=1, max_length=100)
+    sentences: list[AISentence] = Field(default_factory=list, max_length=100)
+    corePhrases: list[str] = Field(default_factory=list, max_length=100)
+    metrics: list[AIMetric] = Field(default_factory=list, max_length=50)
+    chartData: list[dict] = Field(default_factory=list, max_length=50)
+    imageIds: list[str] = Field(default_factory=list, max_length=50)
+    layout: Literal["이미지 강조", "지표 강조", "텍스트 강조"] = "텍스트 강조"
+
+
+class SlidesImport(ResultImport):
+    size: Literal[6, 10, 14]
+    slides: list[AISlide] = Field(min_length=6, max_length=14)
+
+    @model_validator(mode="after")
+    def valid_size(self):
+        if len(self.slides) != self.size or len({s.id for s in self.slides}) != self.size:
+            raise ValueError("슬라이드 개수와 고유 ID가 분량과 일치해야 합니다.")
+        return self

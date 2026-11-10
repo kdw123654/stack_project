@@ -1,6 +1,6 @@
 # STACK Backend (A + B)
 
-이 브랜치에는 백엔드 서버 2개가 함께 있습니다. 하나로 합치는 작업(A의 AI 기능에 로그인·Supabase 저장 연결)은 아직 진행 전입니다.
+이 브랜치에는 백엔드 서버 2개가 함께 있습니다. 프론트가 받은 A 생성 결과를 B에 저장하는 인증된 HTTP API를 제공합니다. A 작업 자체의 로그인/소유권 연결과 단일 서버 통합은 아직 별도 작업입니다.
 
 | 폴더 | 담당 | 내용 |
 |---|---|---|
@@ -19,8 +19,19 @@ uvicorn app.main:app --reload
 ```
 
 - DB 만들기: Supabase SQL Editor에서 `server/sql/01_schema.sql` → `02_seed.sql` → `03_student_login.sql` 순서로 실행
+- 이미 DB를 만든 경우 새 저장 API 사용 전 `04_posting_analysis_import.sql` → `05_cover_answer_import.sql` → `06_portfolio_slide_import.sql`을 추가 실행합니다. 이 SQL은 아직 원격 DB에 자동 적용하지 않았습니다.
 - API 문서: http://127.0.0.1:8000/docs
 - 구현 가이드: `docs/GUIDE_B*.md`
+
+### A 생성 결과 최초 저장
+
+| API | 입력 | 상세 |
+|---|---|---|
+| `POST /api/v1/job-postings` | A postingId + 원문 + A의 data | [공고 저장·ID 매핑](docs/POSTING_STORAGE.md) |
+| `PUT /api/v1/cover-letters/{id}/answers` | A taskId + data.answers | [자소서 답변 저장](docs/COVER_STORAGE.md) |
+| `PUT /api/v1/portfolios/{id}/slides` | A taskId + data.size/slides | [슬라이드 저장](docs/SLIDE_STORAGE.md) |
+
+세 API 모두 B 로그인 토큰이 필요합니다. B DB 공고 ID로 서류 프로젝트를 만들고 A 생성 결과를 저장한 뒤 B 상세 API로 다시 조회합니다. 같은 A 결과를 재전송해도 중복 생성하거나 이후 사용자 수정본을 덮어쓰지 않습니다. 원격 Supabase와 실제 AI/PDF의 연속 실행은 환경 설정 후 별도 확인해야 합니다.
 
 ---
 

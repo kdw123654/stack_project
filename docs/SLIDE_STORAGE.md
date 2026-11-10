@@ -40,6 +40,6 @@ A 생성 완료 후 `GET /ai-results/{taskId}`의 `data`에 `sourceTaskId`를 �
 - `PATCH /api/v1/portfolios/{id}/slides/{slideNo}`: 사용자 직접 수정.
 - `POST /api/v1/portfolios/{id}/export`: `{format:"PPTX"}` 또는 `{format:"PDF"}`.
 
-이번 변경으로 본문과 지표 단위가 기존 PPTX 렌더러에 전달됩니다. **이미지·실제 차트 렌더링은 아직 별도 작업**이며, JSON을 보존하는 것과 실제 파일에 그리는 것은 다릅니다. PDF 출력에는 설치된 LibreOffice가 필요하고 실제 PDF/스토리지 업로드는 해당 환경에서 검증해야 합니다.
+이미지·차트가 포함된 PPTX/PDF 출력과 업로드·교체 API는 [출력 안내](PORTFOLIO_EXPORT.md)를 참고합니다. 한 장 재생성·저장은 [재생성 안내](SLIDE_REGENERATION.md)를 참고합니다.
 
-이 API는 프론트가 전달한 생성 JSON을 저장합니다. A 작업 조회/인증을 B가 서버 간 자동 수행하는 기능은 포함하지 않습니다. 이미지 ID의 실제 바이너리 조회·소유권 연결도 렌더러 연동 단계에서 구현해야 합니다.
+이 API는 프론트가 전달한 생성 JSON을 저장합니다. A 작업 조회/인증을 B가 서버 간 자동 수행하는 기능은 포함하지 않습니다.

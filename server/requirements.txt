@@ -6,3 +6,4 @@ python-multipart
 httpx
 beautifulsoup4
 python-pptx
+Pillow>=11,<14

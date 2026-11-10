@@ -91,6 +91,7 @@ create table portfolios (
   outline jsonb not null default '[]',
   slides jsonb not null default '[]',
   export_path text,
+  image_assets jsonb not null default '{}',
   ai_imports jsonb not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

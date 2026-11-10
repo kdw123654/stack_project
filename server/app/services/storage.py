@@ -25,7 +25,10 @@ def download_file(file_id: str, user_id: str) -> tuple[bytes, str]:
 def remove_all_user_files(user_id: str):
     res = db.table("files").select("storage_path").eq("user_id", user_id).execute()
     paths = [row["storage_path"] for row in res.data]
-    res = db.table("portfolios").select("export_path").eq("user_id", user_id).execute()
+    res = db.table("portfolios").select("export_path, image_assets").eq("user_id", user_id).execute()
     paths += [row["export_path"] for row in res.data if row["export_path"]]
+    for row in res.data:
+        for asset in (row.get("image_assets") or {}).values():
+            paths += [asset["storagePath"], *asset.get("retiredPaths", [])]
     if paths:
-        bucket().remove(paths)
+        bucket().remove(list(set(paths)))

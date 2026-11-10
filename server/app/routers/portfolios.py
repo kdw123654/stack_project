@@ -1,7 +1,8 @@
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, Form, UploadFile, Response
+from typing import Annotated
+from pydantic import BaseModel, Field
 
 from app.common import ApiError, now_iso, ok
 from app.db import db
@@ -11,6 +12,7 @@ from app.services.pptx_render import build_file
 from app.services.storage import signed_url, upload_bytes
 from app.schemas.generated import SlidesImport, SingleSlideImport
 from app.services.generated import check_replay, convert_slides, payload_hash, persist_import
+from app.services.portfolio_images import MAX_IMAGE_BYTES, image_loader, store_image
 
 router = APIRouter(tags=["portfolios"])
 
@@ -32,6 +34,8 @@ class SlideEdit(BaseModel):
     title: Optional[str] = None
     body: Optional[str] = None
     metrics: Optional[list[dict]] = None
+    imageIds: Optional[list[str]] = Field(default=None, max_length=4)
+    chartData: Optional[list[dict]] = Field(default=None, max_length=4)
 
 
 class ExportRequest(BaseModel):
@@ -121,7 +125,6 @@ def import_single_slide(pf_id: str, slide_no: int, body: SingleSlideImport, user
     return ok({**to_api(row), "sourceTaskId": body.sourceTaskId, "reused": reused})
 
 
-
 @router.patch("/portfolios/{pf_id}/slides/{slide_no}")
 def edit_slide(pf_id: str, slide_no: int, body: SlideEdit, user: dict = Depends(get_current_user)):
     pf = get_own_pf(pf_id, user["id"])
@@ -130,7 +133,7 @@ def edit_slide(pf_id: str, slide_no: int, body: SlideEdit, user: dict = Depends(
     if target is None:
         raise ApiError(404, "SLIDE_NOT_FOUND", "슬라이드를 찾을 수 없어요.")
     target.update(body.model_dump(exclude_none=True))
-    return ok(update_pf(pf_id, {"slides": slides}))
+    return ok(update_pf(pf_id, {"slides": slides, "export_path": None}))
 
 
 @router.post("/portfolios/{pf_id}/export")
@@ -139,11 +142,39 @@ def export(pf_id: str, body: ExportRequest, user: dict = Depends(get_current_use
     if not pf["slides"]:
         raise ApiError(400, "NO_SLIDES", "슬라이드 초안을 먼저 만들어 주세요.")
     fmt = body.format or pf["format"]
+    load_image = image_loader(pf, user["id"])
+    for slide in pf["slides"]:
+        for image_id in slide.get("imageIds", []):
+            load_image(image_id)
     try:
-        path = build_file(pf["slides"], fmt)
+        path = build_file(pf["slides"], fmt, image_loader=load_image)
+    except ValueError as error:
+        raise ApiError(422, "INVALID_SLIDE_VISUALS", str(error)) from None
     except Exception:
         raise ApiError(500, "EXPORT_FAILED", "파일을 만들지 못했어요.")
     storage_path = f"{user['id']}/exports/{pf_id}.{fmt.lower()}"
-    upload_bytes(storage_path, path.read_bytes(), CONTENT_TYPES[fmt])
+    try:
+        upload_bytes(storage_path, path.read_bytes(), CONTENT_TYPES[fmt])
+    finally:
+        import shutil
+        shutil.rmtree(path.parent, ignore_errors=True)
     db.table("portfolios").update({"export_path": storage_path}).eq("id", pf_id).execute()
     return ok({"format": fmt, "downloadUrl": signed_url(storage_path)})
+
+
+@router.post("/portfolios/{pf_id}/images")
+def upload_image(pf_id: str, imageId: Annotated[str, Form(min_length=1, max_length=128)],
+                 file: Annotated[UploadFile, File()], user: dict = Depends(get_current_user)):
+    pf = get_own_pf(pf_id, user["id"])
+    try:
+        content = file.file.read(MAX_IMAGE_BYTES + 1)
+    finally:
+        file.file.close()
+    return ok(store_image(pf, user["id"], imageId, content))
+
+
+@router.get("/portfolios/{pf_id}/images/{image_id}")
+def get_image(pf_id: str, image_id: str, user: dict = Depends(get_current_user)):
+    pf = get_own_pf(pf_id, user["id"])
+    return Response(content=image_loader(pf, user["id"])(image_id), media_type="image/png",
+                    headers={"Cache-Control": "no-store"})

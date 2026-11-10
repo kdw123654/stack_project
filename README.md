@@ -19,7 +19,7 @@ uvicorn app.main:app --reload
 ```
 
 - DB 만들기: Supabase SQL Editor에서 `server/sql/01_schema.sql` → `02_seed.sql` → `03_student_login.sql` 순서로 실행
-- 이미 DB를 만든 경우 새 저장 API 사용 전 `04_posting_analysis_import.sql` → `05_cover_answer_import.sql` → `06_portfolio_slide_import.sql`을 추가 실행합니다. 이 SQL은 아직 원격 DB에 자동 적용하지 않았습니다.
+- 이미 DB를 만든 경우 새 저장 API 사용 전 `04_posting_analysis_import.sql` → `05_cover_answer_import.sql` → `06_portfolio_slide_import.sql` → `07_portfolio_images.sql`을 추가 실행합니다. 이 SQL은 아직 원격 DB에 자동 적용하지 않았습니다.
 - API 문서: http://127.0.0.1:8000/docs
 - 구현 가이드: `docs/GUIDE_B*.md`
 
@@ -30,6 +30,11 @@ uvicorn app.main:app --reload
 | `POST /api/v1/job-postings` | A postingId + 원문 + A의 data | [공고 저장·ID 매핑](docs/POSTING_STORAGE.md) |
 | `PUT /api/v1/cover-letters/{id}/answers` | A taskId + data.answers | [자소서 답변 저장](docs/COVER_STORAGE.md) |
 | `PUT /api/v1/portfolios/{id}/slides` | A taskId + data.size/slides | [슬라이드 저장](docs/SLIDE_STORAGE.md) |
+| `POST /api/v1/job-postings/fetch` | 공고 URL → 본문 | [URL 수집](docs/POSTING_URL.md) |
+| `POST /portfolios/slides/{slideId}/regenerate` (A) | 한 장 재생성 | [재생성·저장](docs/SLIDE_REGENERATION.md) |
+| `PUT /api/v1/portfolios/{id}/slides/{slideNo}/generated` (B) | 재생성한 한 장 저장 | [재생성·저장](docs/SLIDE_REGENERATION.md) |
+| `POST /api/v1/portfolios/{id}/images` | 이미지 업로드·교체 | [이미지·출력](docs/PORTFOLIO_EXPORT.md) |
+| `GET /api/v1/portfolios/{id}/images/{imageId}` | 인증된 이미지 미리보기 | [이미지·출력](docs/PORTFOLIO_EXPORT.md) |
 
 세 API 모두 B 로그인 토큰이 필요합니다. B DB 공고 ID로 서류 프로젝트를 만들고 A 생성 결과를 저장한 뒤 B 상세 API로 다시 조회합니다. 같은 A 결과를 재전송해도 중복 생성하거나 이후 사용자 수정본을 덮어쓰지 않습니다. 원격 Supabase와 실제 AI/PDF의 연속 실행은 환경 설정 후 별도 확인해야 합니다.
 

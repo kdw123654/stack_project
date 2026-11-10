@@ -1,3 +1,4 @@
+import { demoMode } from '../services/http';
 import { useState } from 'react';
 import Icon, { LinkedInIcon, GitHubIcon } from '../components/Icon';
 import { SegmentTabs, SubHeader, Sheet } from '../components/Layout';
@@ -28,6 +29,7 @@ export default function Explore({ profile, goTab, toast }: ExploreProps) {
 
   return (
     <div className="screen">
+      {!demoMode && <p className="notice notice--point" role="status">이 화면은 아직 샘플 데이터입니다. 서버 연동 전입니다.</p>}
       <div className="row row--between">
         <h1 className="h-title">교내외 탐색</h1>
         <span className="badge badge--blue">{tab === 'stats' ? '수원대학교 전체' : `${profile.department} 기준`}</span>

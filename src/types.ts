@@ -83,7 +83,7 @@ export interface PortfolioResult {
   images: ExtractedImage[];
   coverId: string;
   sections: ResultSection[];
-  role: { title: string; team: string; contribution: number; duties: string[] };
+  role: { title: string; team: string; contribution: number | null; duties: string[] };
   process: { title: string; desc: string }[];
   metrics: Metric[];
   skills: string[];
@@ -112,10 +112,14 @@ export interface Experience {
   category: string;
   title: string;
   summary: string;
-  contribution: number;
+  contribution: number | null;
   source: string;
   period: string;
   skills?: string[];
+  role?: string;
+  achievements?: string[];
+  assets?: { id: string; label: string }[];
+  backendData?: Record<string, unknown>;
 }
 
 /* ---------- 탐색 ---------- */
@@ -190,14 +194,20 @@ export interface Question {
   id: string;
   no: number;
   title: string;
-  limit: number;
+  limit: number | null;
+  countUnit?: 'characters' | 'bytes' | 'words' | 'unknown';
+  includesSpaces?: boolean | null;
+  needsCheck?: boolean;
 }
 
 export interface Posting {
-  company: string;
-  job: string;
+  company: string | null;
+  job: string | null;
   skills: string[];
   questions: Question[];
+  needsManualQuestions?: boolean;
+  missingFields?: string[];
+  warnings?: string[];
 }
 
 export interface PostingInput {
@@ -209,7 +219,7 @@ export interface MatchedExperience extends Experience {
   fit: Fit;
   reason: string;
   question: string | null;
-  assets: string;
+  assetsLabel: string;
   selected: boolean;
   order: number;
 }
@@ -229,6 +239,8 @@ export type SlideType = '표지' | '소개' | '프로젝트' | '성과' | '요�
 export type SlideLayout = '지표 강조' | '이미지 강조' | '텍스트 강조';
 
 export interface SlideItem {
+  sourceExperienceIds?: string[];
+  metrics?: { label: string; value: number; unit: string }[];
   id: string;
   title: string;
   desc: string;

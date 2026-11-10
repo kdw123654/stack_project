@@ -67,30 +67,29 @@ src/
 - `analyzeFiles<M>(files, mode)`는 모드에 따라 반환 타입이 자동으로 정해집니다 (`ResultByMode[M]`).
 - 백엔드 응답 스키마를 `types.ts`에 맞추면 화면 코드는 수정할 필요가 없어요.
 
-## 백엔드 연결할 때
+## 백엔드 연결 상태
 
-`src/services/api.ts`의 함수 **내부만** fetch로 바꾸면 화면 코드는 그대로 동작합니다.
+백엔드 STACK_BE 커밋 22005747d66c2cf2d11431c917bdcad3655c38db의 라우터·Pydantic 모델·INDEPENDENT_API.md를 확인해 연결했습니다.
 
-| 함수 | 반환 타입 | 예상 엔드포인트 |
-|---|---|---|
-| `analyzeFiles(files, mode, memo, onStep)` | `ResultByMode[M]` | `POST /api/experiences/analyze` (multipart) |
-| `saveExperience(payload)` | `Experience` | `POST /api/experiences` |
-| `parsePosting({ url, text })` | `Posting` | `POST /api/postings/parse` |
-| `matchExperiences(posting, kind, list)` | `MatchedExperience[]` | `POST /api/postings/:id/match` |
-| `generateCoverLetter(posting, picked, onStep)` | `CoverDraft[]` | `POST /api/drafts/cover` |
-| `buildSlideOutline(posting, picked, size)` | `SlideItem[]` | `POST /api/drafts/slides/outline` |
-| `generateSlides(outline)` | `SlideItem[]` | `POST /api/drafts/slides` |
+| 기능 | 연결 |
+|---|---|
+| 문서 분석·공고 분석 | A 작업 생성 → 2초 폴링 → 결과 조회. result.data 및 data 사용, 서버 stage·부분 실패·경고 처리 |
+| 경험 추천 | A 태그 기반 추천 API. FE 메타데이터를 제거한 엄격한 DTO 전달 |
+| 자소서 생성·문항 재생성 | A 생성 API → ai-results 조회. 문항별 경험 선택, 성공 후 결과 교체 |
+| 슬라이드 구성·내용 생성 | A outline/generate. 구성안 근거 경험 ID 유지, 6/10/14장 검증 |
+| 로그인·가입 | B 학번 로그인, 이메일 코드 인증, 비밀번호 등록, 세션 토큰 갱신·로그아웃 |
+| 프로필·목표 | B 내 정보 조회 및 목표 수정 |
+| 경험 DB | B 전체 페이지 조회·저장·수정·삭제. 화면 메모는 portfolio.frontend에 보존 |
+| 자소서·포트폴리오 초안 저장 | 사용자별 이 기기에 저장하고 보관함에서 다시 열기. B에 A 최초 생성 결과를 넣는 HTTP API가 없음 |
 
-AI 확신도가 낮은 칸은 `needsCheck: true`로 내려 주세요 → 주황색 "확인 필요" 표시.
+.env.example을 .env.local로 복사하고 npm run dev를 실행하세요. A 기본 주소는 http://127.0.0.1:8000, B는 http://127.0.0.1:8001입니다. B 실행 시 --port 8001을 사용해야 두 서버를 함께 실행할 수 있습니다. AI_API_PROXY_TARGET과 BACKEND_API_PROXY_TARGET으로 변경할 수 있습니다. 프록시 경로는 /ai-api 및 /backend-api이며 B의 /api/v1 접두사를 유지합니다.
 
-## 아직 코드에 없는 것 (피그마에는 있음)
+배포에서는 두 프록시를 구성하거나 VITE_AI_API_BASE_URL과 VITE_BACKEND_API_BASE_URL(B는 /api/v1 포함)을 실제 서버로 지정하고 CORS를 설정하세요. Vite 개발용 프록시는 배포 빌드에 포함되지 않습니다. 비밀 키는 서버에만 설정합니다. VITE_API_MOCK=true를 명시하면 샘플 모드로 실행합니다. 실제 모드는 로그인 후 개인 경험 DB를 사용합니다. A는 아직 인증/소유권 확인 없는 개발용 서버이므로 현재 직접 호출 구조는 로컬 개발용입니다.
 
-- 설정 상세 화면 P0(개인정보 보호)·S1(학교 인증)·G1(이용 가이드)·W1~W3(탈퇴 단계) — 지금은 설정 모달에서 토스트로 대체. 라우터(react-router 등) 도입 시 `SETTINGS_ITEMS`의 `onClick`에서 이동하면 됩니다.
-- '인증 문의하기', '내 데이터 내려받기' 버튼 동작
+실제 모드의 탐색·선배 Q&A·학교 전체 통계는 B API를 사용합니다. 마인드맵은 사용자 입력 기준을 A에 전달해 진단하고 B 선배 비교를 조회합니다. 설정은 B 동의·인증·정책·내보내기·탈퇴 API를 호출합니다. 기존 시안 화면은 샘플 모드에서만 사용합니다. 포트폴리오 내보내기는 B에 생성 결과 저장 경로가 추가된 후 연결할 수 있습니다. B의 update_cl/update_pf는 Python 내부 함수로만 제공되며 프론트에서 직접 호출할 수 없습니다. 현재 생성 결과를 받아 넣는 HTTP 경로를 추측해 만들지 않았습니다.
 
-## 정해야 할 것 (기본값으로 넣어 둠)
+URL 수집은 B에 크롤러 내부 함수만 있고 본문을 반환하는 URL HTTP API가 없어 공고 본문 입력을 사용합니다. 분석 결과에서 모드 변경은 A /analyses/{id}/remode로 추출 내용을 재사용합니다. 홈의 원본 보관 버튼은 B /files에 업로드하며 최근 파일은 목록·상세의 서명 다운로드 URL로 받아 A에 다시 분석 요청합니다. 보관 파일이 없으면 목록은 비어 있습니다. B 원본 보관 API는 A와 달리 WEBP를 허용하지 않아 원본 보관 시 사전 안내합니다. 공고 문항은 nullable 제한·단위·공백 기준을 유지합니다. INDEPENDENT_API에서 지정한 UTF-8 바이트 계산을 사용합니다.
 
-- 업로드 제한: `UPLOAD_LIMIT` (5개 · 파일당 20MB)
-- 목표 기업 비교 최소 표본: `MIN_SAMPLE` (3명)
-- 메모 글자 수: 300자
-- 폰트: Pretendard Variable (index.html CDN)
+검증 명령: npm run test:api, npm run build. 전자는 모의 HTTP 응답 기반 계약 테스트이며 실제 서버 실행/AI 품질 검증은 포함하지 않습니다. 제공받은 두 문서는 docs/BACKEND_A_API.md, docs/BACKEND_README.md에 보관했습니다.
+
+공고 문항의 내용·제한·분량 단위·공백 기준을 분석 후 직접 수정할 수 있습니다. 경험 저장 시 역할·성과·분석 결과 전체를 함께 보존합니다.

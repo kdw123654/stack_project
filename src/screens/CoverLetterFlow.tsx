@@ -1,5 +1,8 @@
+import { rewrite } from '../services/career';
+import { demoMode } from '../services/http';
 import { useState } from 'react';
 import Icon from '../components/Icon';
+import { questionCount, questionLimitLabel } from '../services/questions';
 import { FlowHeader, Stepper, TitleBlock, Checkbox, PostingInput, ProgressCard } from '../components/Flow';
 import { FIT_META } from '../data/mock';
 import { parsePosting, matchExperiences, generateCoverLetter } from '../services/api';
@@ -7,6 +10,7 @@ import type { Experience, Posting, PostingInput as PostingInputValue, MatchedExp
 
 interface CoverLetterFlowProps {
   experiences: Experience[];
+  initial?: { posting: Posting; drafts: CoverDraft[]; picked: MatchedExperience[] };
   onExit: () => void;
   onSaved?: (payload: { kind: 'cover'; posting: Posting; drafts: CoverDraft[] }) => void;
   toast: Toast;
@@ -19,16 +23,17 @@ const errMsg = (e: unknown) => (e instanceof Error ? e.message : '요청에 실�
  * Figma: FLOW 2 · 자소서 ①공고 입력 → ②경험 자동 선별 → ③초안 생성 중 → ④문항별 초안 확인·수정
  */
 const LABELS = ['공고 입력', '경험 선별', '초안 생성', '확인·수정'];
-const GEN_STEPS = ['공고 요구 역량 정리', '문항별 경험 배치', '문항 1 초안 작성', '나머지 문항 초안 작성', '글자 수 맞추기'];
+const GEN_STEPS = ['작업 대기', 'AI 초안 생성', '결과 검증'];
 
-export default function CoverLetterFlow({ experiences, onExit, onSaved, toast }: CoverLetterFlowProps) {
-  const [step, setStep] = useState<Step>(1);
-  const [posting, setPosting] = useState<Posting | null>(null);
+export default function CoverLetterFlow({ experiences, onExit, onSaved, toast, initial }: CoverLetterFlowProps) {
+  const [rewriting, setRewriting] = useState(false);
+  const [step, setStep] = useState<Step>(initial ? 4 : 1);
+  const [posting, setPosting] = useState<Posting | null>(initial?.posting ?? null);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState('');
-  const [matched, setMatched] = useState<MatchedExperience[]>([]);
+  const [matched, setMatched] = useState<MatchedExperience[]>(initial?.picked ?? []);
   const [genStep, setGenStep] = useState(0);
-  const [drafts, setDrafts] = useState<CoverDraft[]>([]);
+  const [drafts, setDrafts] = useState<CoverDraft[]>(initial?.drafts ?? []);
   const [active, setActive] = useState(0);
   const [editing, setEditing] = useState(false);
 
@@ -46,25 +51,45 @@ export default function CoverLetterFlow({ experiences, onExit, onSaved, toast }:
 
   const goSelect = async () => {
     if (!posting) return;
-    setMatched(await matchExperiences(posting, 'cover', experiences));
-    setStep(2);
+    if (!posting.questions.length) return toast('자소서 문항을 먼저 추가해 주세요.');
+    if (posting.questions.some(q => !q.title.trim())) return toast('빈 문항 내용을 입력해 주세요.');
+    try {
+      setMatched(await matchExperiences(posting, 'cover', experiences));
+      setStep(2);
+    } catch (e) { toast(errMsg(e)); }
   };
 
   const picked = matched.filter((m) => m.selected);
 
   const generate = async () => {
     if (!posting) return;
+    setGenStep(0);
     setStep(3);
+    try {
     const result = await generateCoverLetter(posting, picked, setGenStep);
     setDrafts(result);
     setActive(0);
     setStep(4);
+    } catch (e) { toast(errMsg(e)); setStep(2); }
   };
 
+  const rewriteAnswer = async (instructions = '') => {
+    if (!posting || rewriting) return;
+    if (demoMode) return toast('샘플 모드에서는 재생성을 지원하지 않아요.');
+    const original = drafts[active];
+    setRewriting(true);
+    try {
+      const next = await rewrite(posting, picked, original, instructions);
+      setDrafts(current => current.map(d => d.id === next.id ? next : d));
+      toast('새 초안을 반영했어요');
+    } catch (e) { toast(errMsg(e)); }
+    finally { setRewriting(false); }
+  };
   const save = () => {
     if (!posting) return;
+    try { localStorage.setItem('stack.cover.' + (sessionStorage.getItem('stack.userId') || 'demo'), JSON.stringify({ posting, drafts, picked })); } catch { return toast('기기 저장 공간을 확인해 주세요.'); }
     onSaved?.({ kind: 'cover', posting, drafts });
-    toast('자소서 초안을 저장했어요');
+    toast('이 기기에 자소서 초안을 저장했어요');
     onExit();
   };
 
@@ -96,15 +121,19 @@ export default function CoverLetterFlow({ experiences, onExit, onSaved, toast }:
             loading={parsing}
             error={error}
             onParse={parse}
-            onAddQuestion={() =>
-              posting &&
+            onQuestionChange={next => posting && setPosting({ ...posting, questions: posting.questions.map(q => q.id === next.id ? next : q) })}
+            onAddQuestion={() => {
+              if (!posting) return;
+              const title = window.prompt('공고에 있는 자소서 문항을 입력해 주세요.');
+              if (!title?.trim()) return;
               setPosting({
                 ...posting,
-                questions: [...posting.questions, { id: `q${posting.questions.length + 1}`, no: posting.questions.length + 1, title: '직접 추가한 문항', limit: 500 }],
-              })
-            }
+                needsManualQuestions: false,
+                questions: [...posting.questions, { id: crypto.randomUUID(), no: posting.questions.length + 1, title: title.trim(), limit: null, countUnit: 'unknown', includesSpaces: null, needsCheck: true }],
+              });
+            }}
           />
-          <div className="notice"><Icon name="info" size={16} />문항을 찾지 못하면 자주 쓰는 문항(지원 동기 · 협업 경험 · 성장 과정)으로 시작해요.</div>
+          <div className="notice"><Icon name="info" size={16} />문항을 찾지 못하면 공고 원문을 확인하고 직접 추가해 주세요.</div>
           <button className="btn btn--primary btn--block" disabled={!posting} onClick={goSelect}>
             <Icon name="arrowR" size={18} /> 다음 · 맞는 경험 고르기
           </button>
@@ -155,7 +184,7 @@ export default function CoverLetterFlow({ experiences, onExit, onSaved, toast }:
         <div style={{ marginTop: 64 }}>
           <ProgressCard
             title="자소서 초안을 쓰고 있어요"
-            caption={`문항 ${posting?.questions.length ?? 0}개 · 경험 ${picked.length}개 사용 · 보통 20–30초`}
+            caption={`문항 ${posting?.questions.length ?? 0}개 · 경험 ${picked.length}개 사용`}
             steps={GEN_STEPS}
             step={genStep}
           />
@@ -173,16 +202,17 @@ export default function CoverLetterFlow({ experiences, onExit, onSaved, toast }:
               </button>
             ))}
           </div>
+          {rewriting && <p role="status">문항을 다시 작성하는 중입니다. 완료 후 새 초안을 반영합니다.</p>}
           <DraftCard
             draft={drafts[active]}
             editing={editing}
             setEditing={setEditing}
             onChange={(text: string) => setDrafts(drafts.map((d, i) => (i === active ? { ...d, text } : d)))}
-            onRewrite={() => toast('다시 쓰는 중이에요 (API 연결 후 동작)')}
-            onPolish={() => toast('문장을 다듬는 중이에요 (API 연결 후 동작)')}
+            onRewrite={() => { void rewriteAnswer(); }}
+            onPolish={() => { void rewriteAnswer('기존 근거를 유지하면서 문장을 자연스럽게 다듬어 주세요.'); }}
             onCopy={() => { navigator.clipboard?.writeText(drafts[active].text); toast('복사했어요'); }}
           />
-          <button className="btn btn--primary btn--block" onClick={save}>자소서 초안 저장</button>
+          <button className="btn btn--primary btn--block" onClick={save}>이 기기에 자소서 초안 저장</button>
           <button className="link" style={{ alignSelf: 'center', fontSize: 13 }} onClick={() => toast('코칭 신청 화면으로 이동')}>취업지원처 무료 코칭 받기 →</button>
         </>
       )}
@@ -201,14 +231,14 @@ interface DraftCardProps {
 }
 
 function DraftCard({ draft, editing, setEditing, onChange, onRewrite, onPolish, onCopy }: DraftCardProps) {
-  const len = draft.text.length;
-  const over = len > draft.limit;
+  const len = questionCount(draft.text, draft);
+  const over = len !== null && draft.limit !== null && len > draft.limit;
   return (
     <section className="card stack-12">
       <h2 className="t-strong" style={{ fontSize: 15 }}>{draft.title}을(를) 작성해 주세요.</h2>
       <div className="row" style={{ gap: 10 }}>
-        <div className="meter grow"><div className="meter__fill" style={{ width: `${Math.min(100, (len / draft.limit) * 100)}%`, background: over ? 'var(--point-500)' : undefined }} /></div>
-        <span className="t-strong" style={{ fontSize: 12, color: over ? 'var(--point-600)' : 'var(--navy-900)' }}>{len} / {draft.limit}자</span>
+        <div className="meter grow"><div className="meter__fill" style={{ width: `${draft.limit && len !== null ? Math.min(100, (len / draft.limit) * 100) : 0}%`, background: over ? 'var(--point-500)' : undefined }} /></div>
+        <span className="t-strong" style={{ fontSize: 12, color: over ? 'var(--point-600)' : 'var(--navy-900)' }}>{len === null ? '분량 기준 확인 필요' : len} · {questionLimitLabel(draft)}</span>
       </div>
       <div className="draft">
         <div className="row row--between">

@@ -1,3 +1,4 @@
+import { demoMode } from '../services/http';
 import { useState } from 'react';
 import Icon, { type IconName } from '../components/Icon';
 import type { Experience, Profile } from '../types';
@@ -102,6 +103,7 @@ export default function SettingsScreen({ profile, experiences, onClose, onGoHome
       </header>
 
       <div className="settings-route__scroll">
+      {!demoMode && <p className="notice notice--point" role="status">이 화면은 아직 샘플 데이터입니다. 서버 연동 전입니다.</p>}
         {route === 'menu' && <SettingsMenu onNavigate={setRoute} />}
         {route === 'privacy' && <PrivacyHub onNavigate={setRoute} />}
         {(route === 'privacyPolicy' || route === 'terms' || route === 'aiPolicy') && <PolicyPage page={route} />}

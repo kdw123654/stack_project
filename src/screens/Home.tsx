@@ -1,4 +1,6 @@
-import { useRef, useState } from 'react';
+import { listFiles, storeFiles, reuseFile, type StoredFile } from '../services/backend';
+import { demoMode } from '../services/http';
+import { useEffect, useRef, useState } from 'react';
 import Icon from '../components/Icon';
 import { Sheet, SubHeader, EditableField } from '../components/Layout';
 import { MODES, recentFiles, notices } from '../data/mock';
@@ -18,11 +20,6 @@ const fileKind = (name: string): FileKind => {
 };
 const KIND_LABEL: Record<FileKind, string> = { ppt: 'PPT', pdf: 'PDF', img: 'IMG', doc: 'DOC' };
 // 모드별 분석 단계 (Figma: v2 / 홈 — AI 분석 중 (○○ 모드))
-const STEPS_BY_MODE: Record<ModeId, string[]> = {
-  resume: ['파일 내용 읽는 중', '경험·성과 문장 찾는 중', '이력서 항목으로 정리 중', '확인이 필요한 부분 표시 중'],
-  portfolio: ['슬라이드·이미지 읽는 중', '대표 이미지·지표 고르는 중', '개요–문제–과정–성과로 정리 중', '확인이 필요한 부분 표시 중'],
-  specup: ['파일 내용 읽는 중', '자격증·활동·수상 모으는 중', '목표 직무와 비교하는 중', '보완 항목 정리 중'],
-};
 
 export function FileIcon({ name, type }: { name: string; type?: FileKind }) {
   const k = type || fileKind(name);
@@ -39,6 +36,11 @@ interface HomeProps {
 type View = 'home' | 'analyzing' | 'result';
 
 export default function Home({ profile, onEditProfile, goTab, onSaved }: HomeProps) {
+  const [stored, setStored] = useState<StoredFile[]>([]);
+  const [fileBusy, setFileBusy] = useState(false);
+  const [fileError, setFileError] = useState('');
+  const [analysisId, setAnalysisId] = useState('');
+  const [sourceFileId, setSourceFileId] = useState<string | null>(null);
   const [view, setView] = useState<View>('home');
   const [files, setFiles] = useState<(File | UploadItem)[]>([]);
   const [memo, setMemo] = useState('');
@@ -48,10 +50,31 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
   const [step, setStep] = useState(0);
   const [result, setResult] = useState<TaggedResult | null>(null);
   const [error, setError] = useState('');
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   useHideHeader(view === 'result');
 
+  useEffect(() => {
+    if (demoMode) return;
+    let active = true;
+    listFiles().then(value => { if (active) setStored(value); }).catch(e => { if (active) setFileError(e.message); });
+    return () => { active = false; };
+  }, []);
+  const shownRecent: RecentFile[] = demoMode ? recentFiles : stored.map(f => ({ id: f.fileId, name: f.name, type: fileKind(f.name), updatedAt: f.uploadedAt.slice(0, 10), mode: f.lastMode ?? '미분석' }));
+  const keepOriginals = async () => {
+    if (fileBusy) return;
+    if (!files.every(file => file instanceof File)) return setError('원본 파일을 선택해 주세요.');
+    setFileBusy(true); setError('');
+    try {
+      const saved = await storeFiles(files as File[]);
+      setSourceFileId(saved[0]?.fileId ?? null);
+      setStored(current => [...saved, ...current].slice(0, 20));
+      setFileError('');
+      setError('선택한 원본을 보관함에 저장했어요.');
+    } catch (e) { setError(e instanceof Error ? e.message : '원본 저장에 실패했어요.'); }
+    finally { setFileBusy(false); }
+  };
   const addFiles = (list: FileList | null) => {
     if (!list) return;
     const incoming = Array.from(list);
@@ -60,23 +83,34 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
     const next = [...files, ...incoming].slice(0, UPLOAD_LIMIT.maxFiles);
     setError('');
     setFiles(next);
+    setAnalysisId('');
+    setSourceFileId(null);
     if (next.length) setSheetOpen(true);
   };
 
   // 최근 파일 "다시 추출": 같은 파일로 다른 모드 결과를 뽑을 때
-  const reuseRecent = (f: RecentFile) => {
-    setFiles([{ name: f.name, size: 0, recent: true }]);
-    setSheetOpen(true);
+  const reuseRecent = async (f: RecentFile) => {
+    if (fileBusy) return;
+    setFileBusy(true); setError('');
+    try {
+      setFiles(demoMode ? [{ name: f.name, size: 0, recent: true }] : [await reuseFile(f.id)]);
+      setSourceFileId(demoMode ? null : f.id); setAnalysisId(''); setSheetOpen(true);
+    } catch (e) { setError(e instanceof Error ? e.message : '원본을 불러오지 못했어요.'); }
+    finally { setFileBusy(false); }
   };
 
-  const start = async (m: ModeId = mode) => {
+  const start = async (m: ModeId = mode, remode = false) => {
     setSheetOpen(false);
     setView('analyzing');
+    setMode(m);
+    setStep(0);
+    setWarnings([]);
+    setError('');
     try {
       // 모드별로 결과 타입이 정확히 좁혀지도록 태그를 붙여 저장
-      if (m === 'resume') setResult({ mode: m, data: await analyzeFiles(files, m, memo, setStep) });
-      else if (m === 'portfolio') setResult({ mode: m, data: await analyzeFiles(files, m, memo, setStep) });
-      else setResult({ mode: m, data: await analyzeFiles(files, m, memo, setStep) });
+      if (m === 'resume') setResult({ mode: m, data: await analyzeFiles(files, m, memo, setStep, profile.job, setWarnings, { sourceAnalysisId: remode ? analysisId : undefined, onAnalysis: setAnalysisId }) });
+      else if (m === 'portfolio') setResult({ mode: m, data: await analyzeFiles(files, m, memo, setStep, profile.job, setWarnings, { sourceAnalysisId: remode ? analysisId : undefined, onAnalysis: setAnalysisId }) });
+      else setResult({ mode: m, data: await analyzeFiles(files, m, memo, setStep, profile.job, setWarnings, { sourceAnalysisId: remode ? analysisId : undefined, onAnalysis: setAnalysisId }) });
       setView('result');
     } catch (e) {
       setError(e instanceof Error ? e.message : '분석에 실패했어요. 다시 시도해 주세요.');
@@ -91,11 +125,15 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
     setMemoOpen(false);
     setResult(null);
     setStep(0);
+    setAnalysisId('');
+    setSourceFileId(null);
   };
 
   if (view === 'analyzing') return <Analyzing step={step} mode={mode} files={files} />;
   if (view === 'result' && result)
     return (
+      <>
+      {warnings.length > 0 && <div className="notice notice--point" role="status">{warnings.map((warning, i) => <p key={i}>{warning}</p>)}</div>}
       <ModeResult
         result={result}
         setResult={setResult}
@@ -103,14 +141,16 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
         onBack={reset}
         onChangeMode={(m) => {
           setMode(m);
-          start(m);
+          start(m, true);
         }}
         onSave={async () => {
           if (result.mode === 'specup') return;
+          try {
           const source = files[0]?.name ?? '';
           const saved =
             result.mode === 'portfolio'
               ? await saveExperience({
+                  backendData: { sourceFileId, portfolio: { analysisId, analysis: result } },
                   category: result.data.category,
                   title: result.data.summary,
                   summary: result.data.metrics.map((x) => `${x.label} ${x.value}`).join(' · '),
@@ -118,12 +158,18 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
                   source,
                   period: result.data.period,
                   skills: result.data.skills,
+                  role: result.data.role.title,
+                  achievements: result.data.metrics.map(x => `${x.label} ${x.value}`),
+                  assets: result.data.images.map(image => ({ id: image.id, label: image.label })),
                 })
               : await saveExperience({
-                  category: '대외활동',
+                  backendData: { sourceFileId, portfolio: { analysisId, analysis: result } },
+                  category: 'ETC',
+                  role: result.data.sections.find(x => x.key === 'role')?.value ?? '',
+                  achievements: result.data.sections.filter(x => ['achievement', 'outcome', 'achieve'].includes(x.key)).map(x => x.value),
                   title: result.data.summary,
-                  summary: result.data.sections.find((x) => x.key === 'achieve')?.value ?? '',
-                  contribution: 100,
+                  summary: result.data.sections.filter(x => ['achievement', 'outcome', 'achieve'].includes(x.key)).map(x => x.value).join(' · '),
+                  contribution: null,
                   source,
                   period: result.data.sections.find((x) => x.key === 'period')?.value ?? '',
                   skills: result.data.skills,
@@ -131,9 +177,11 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
           onSaved(saved);
           reset();
           goTab('experience');
+          } catch (e) { window.alert(e instanceof Error ? e.message : '저장에 실패했어요.'); }
         }}
         goTab={goTab}
       />
+      </>
     );
 
   return (
@@ -200,14 +248,17 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
           <h2 className="h-sub">최근 업데이트한 파일</h2>
           <button className="link" onClick={() => goTab('experience')}>보관함 →</button>
         </div>
-        {recentFiles.map((f) => (
+        {fileError && <p className="notice notice--point" role="alert">{fileError}</p>}
+        {fileBusy && <p role="status">파일을 처리하는 중입니다.</p>}
+        {!shownRecent.length && !fileError && <p className="t-caption">보관한 원본 파일이 없습니다.</p>}
+        {shownRecent.map((f) => (
           <div key={f.id} className="file-row">
             <FileIcon name={f.name} type={f.type} />
             <div className="grow">
               <div className="t-strong" style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
               <div className="t-caption">{f.updatedAt} · {f.mode} 모드로 정리됨</div>
             </div>
-            <button className="btn btn--soft btn--sm" onClick={() => reuseRecent(f)}>
+            <button className="btn btn--soft btn--sm" disabled={fileBusy} onClick={() => { void reuseRecent(f); }}>
               <Icon name="refresh" size={14} /> 다른 모드
             </button>
           </div>
@@ -215,7 +266,7 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
       </section>
 
       {/* HM-06 취업지원처 추천 공고 (매칭 % 대신 일치 태그 표기) */}
-      <button className="card card--click stack-8" onClick={() => goTab('explore')}>
+      {demoMode && <button className="card card--click stack-8" onClick={() => goTab('explore')}>
         <div className="row row--between">
           <span className="badge badge--success">수원대 취업지원처 추천</span>
           <span className="badge badge--point">D-{notices[1].dday}</span>
@@ -224,6 +275,7 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
         <div className="t-caption">내 역량 태그 <b style={{ color: 'var(--blue-600)' }}>#{notices[1].tags[0]}</b> 와 관련된 프로그램</div>
       </button>
 
+      }
       {/* HM-07 마인드맵 안내 */}
       <button className="card card--tint card--click row" onClick={() => goTab('mindmap')}>
         <div className="mode-card__ico"><Icon name="target" /></div>
@@ -248,7 +300,7 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
                 <FileIcon name={f.name} />
                 <span className="grow t-strong" style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
                 {!("recent" in f && f.recent) && (
-                  <button className="icon-btn" style={{ width: 28, height: 28 }} aria-label="파일 빼기" onClick={() => setFiles(files.filter((_, j) => j !== i))}>
+                  <button className="icon-btn" style={{ width: 28, height: 28 }} aria-label="파일 빼기" onClick={() => { setFiles(files.filter((_, j) => j !== i)); setSourceFileId(null); setAnalysisId(''); }}>
                     <Icon name="close" size={14} />
                   </button>
                 )}
@@ -269,6 +321,8 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
             ))}
           </div>
 
+          {!demoMode && <button className="btn btn--soft" disabled={fileBusy || !files.length || Boolean(sourceFileId)} onClick={() => { void keepOriginals(); }}>{sourceFileId ? '원본 보관 완료' : fileBusy ? '원본 보관 중' : '선택 파일 원본 보관하기'}</button>}
+          {error && <p className="notice notice--point" role="status">{error}</p>}
           {/* 직접 입력은 선택 사항으로 접어 둠 */}
           {memoOpen ? (
             <textarea className="memo" placeholder="파일에 없는 내용만 짧게 적어 주세요. 예) 팀 5명 중 콘텐츠 리드" value={memo} onChange={(e) => setMemo(e.target.value)} maxLength={300} />
@@ -278,7 +332,7 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
             </button>
           )}
 
-          <button className="btn btn--primary btn--block" disabled={!files.length} onClick={() => start()}>
+          <button className="btn btn--primary btn--block" disabled={!files.length || fileBusy} onClick={() => start()}>
             <Icon name="sparkle" size={18} /> AI로 정리 시작
           </button>
         </Sheet>
@@ -290,7 +344,7 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
 /* ================= HM-04 분석 중 ================= */
 function Analyzing({ step, mode, files }: { step: number; mode: ModeId; files: (File | UploadItem)[] }) {
   const m = MODES.find((x) => x.id === mode) ?? MODES[0];
-  const STEPS = STEPS_BY_MODE[mode];
+  const STEPS = ['작업 대기 중', '문서 내용 추출 중', 'AI 분석 중', '결과 검증 중'];
   return (
     <div className="screen" style={{ justifyContent: 'center' }}>
       <div className="card stack-12" style={{ padding: 24 }}>
@@ -300,10 +354,10 @@ function Analyzing({ step, mode, files }: { step: number; mode: ModeId; files: (
           </span>
           <div>
             <div className="h-sub">{m.title}로 정리하고 있어요</div>
-            <div className="t-caption">파일 {files.length}개 · 보통 10–20초 걸려요</div>
+            <div className="t-caption">파일 {files.length}개 · 서버에서 처리 중입니다</div>
           </div>
         </div>
-        <div className="progress"><div className="progress__bar" style={{ width: `${((step + 1) / STEPS.length) * 100}%` }} /></div>
+        <p className="t-caption" role="status">{STEPS[step]}</p>
         <ul className="step-list">
           {STEPS.map((s, i) => (
             <li key={s} className={i < step ? 'is-done' : i === step ? 'is-now' : ''}>

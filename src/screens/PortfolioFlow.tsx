@@ -9,6 +9,7 @@ import type {
 
 interface PortfolioFlowProps {
   experiences: Experience[];
+  initial?: { posting: Posting; slides: SlideItem[]; picked: MatchedExperience[] };
   onExit: () => void;
   onSaved?: (payload: { kind: 'slides'; posting: Posting; slides: SlideItem[] }) => void;
   toast: Toast;
@@ -25,16 +26,16 @@ const KIND_BY_FIT_TITLE = (m: { title: string }): MiniKind => (m.title.includes(
 const TYPE_BADGE: Partial<Record<SlideType, string>> = { 성과: 'badge--point', 프로젝트: 'badge--blue' };
 const LAYOUTS: SlideLayout[] = ['지표 강조', '이미지 강조', '텍스트 강조'];
 
-export default function PortfolioFlow({ experiences, onExit, onSaved, toast }: PortfolioFlowProps) {
-  const [step, setStep] = useState<Step>(1);
-  const [posting, setPosting] = useState<Posting | null>(null);
+export default function PortfolioFlow({ experiences, onExit, onSaved, toast, initial }: PortfolioFlowProps) {
+  const [step, setStep] = useState<Step>(initial ? 4 : 1);
+  const [posting, setPosting] = useState<Posting | null>(initial?.posting ?? null);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState('');
   const [options, setOptions] = useState<SlideOptions>({ size: 10, format: 'PDF' });
-  const [matched, setMatched] = useState<MatchedExperience[]>([]);
-  const [outline, setOutline] = useState<SlideItem[]>([]);
+  const [matched, setMatched] = useState<MatchedExperience[]>(initial?.picked ?? []);
+  const [outline, setOutline] = useState<SlideItem[]>(initial?.slides ?? []);
   const [generating, setGenerating] = useState(false);
-  const [slides, setSlides] = useState<SlideItem[]>([]);
+  const [slides, setSlides] = useState<SlideItem[]>(initial?.slides ?? []);
   const [cur, setCur] = useState(0);
 
   const parse = async (input: PostingInputValue) => {
@@ -61,25 +62,32 @@ export default function PortfolioFlow({ experiences, onExit, onSaved, toast }: P
   const toExtract = async () => {
     if (!posting) return;
     // 적합도 순(이미지·지표가 있는 경험 우선)으로 정렬되어 옴
-    setMatched(await matchExperiences(posting, 'slides', experiences));
-    setStep(2);
+    try {
+      setMatched(await matchExperiences(posting, 'slides', experiences));
+      setStep(2);
+    } catch (e) { toast(errMsg(e)); }
   };
   const toOutline = async () => {
     if (!posting) return;
-    setOutline(await buildSlideOutline(posting, picked, options.size));
-    setStep(3);
+    try {
+      setOutline(await buildSlideOutline(posting, picked, options.size));
+      setStep(3);
+    } catch (e) { toast(errMsg(e)); }
   };
   const toPreview = async () => {
     setGenerating(true);
-    setSlides(await generateSlides(outline));
+    try {
+    setSlides(await generateSlides(outline, posting ?? undefined, picked));
     setGenerating(false);
     setCur(Math.min(4, outline.length - 1));
     setStep(4);
+    } catch (e) { toast(errMsg(e)); } finally { setGenerating(false); }
   };
   const save = () => {
     if (!posting) return;
+    try { localStorage.setItem('stack.slides.' + (sessionStorage.getItem('stack.userId') || 'demo'), JSON.stringify({ posting, slides, picked })); } catch { return toast('기기 저장 공간을 확인해 주세요.'); }
     onSaved?.({ kind: 'slides', posting, slides });
-    toast('포트폴리오 초안을 저장했어요');
+    toast('이 기기에 포트폴리오 초안을 저장했어요');
     onExit();
   };
 
@@ -131,7 +139,7 @@ export default function PortfolioFlow({ experiences, onExit, onSaved, toast }: P
                   <span className={`badge ${FIT_META[m.fit].cls}`}>{FIT_META[m.fit].label}</span>
                 </div>
                 <div className="t-strong" style={{ fontSize: 14 }}>{m.title}</div>
-                <div className="t-caption">{m.assets}</div>
+                <div className="t-caption">{m.assetsLabel}</div>
               </div>
               {m.selected && (
                 <div className="reorder">
@@ -176,7 +184,7 @@ export default function PortfolioFlow({ experiences, onExit, onSaved, toast }: P
           </section>
           <button
             className="dashed-btn"
-            onClick={() => setOutline([...outline, { id: `s${Date.now()}`, title: '새 슬라이드', desc: '내용을 입력해 주세요', type: '프로젝트' as const, kind: 'text' as const }])}
+            onClick={() => setOutline([...outline, { id: `s${Date.now()}`, title: '새 슬라이드', desc: '내용을 입력해 주세요', type: '프로젝트' as const, kind: 'text' as const, sourceExperienceIds: picked.map(e => e.id) }])}
           >
             <Icon name="plus" size={16} /> 슬라이드 추가
           </button>
@@ -223,14 +231,14 @@ export default function PortfolioFlow({ experiences, onExit, onSaved, toast }: P
               ))}
             </div>
             <div className="grid-2">
-              <button className="btn btn--soft btn--sm" onClick={() => toast('이 슬라이드를 다시 만드는 중이에요 (API 연결 후 동작)')}><Icon name="sparkle" size={14} />AI로 다시 만들기</button>
-              <button className="btn btn--ghost btn--sm" onClick={() => toast('보관함 이미지에서 고를 수 있어요 (API 연결 후 동작)')}><Icon name="image" size={14} />이미지 바꾸기</button>
+              <button className="btn btn--soft btn--sm" onClick={() => toast('현재 API는 전체 슬라이드 생성을 지원합니다. 슬라이드 구성 단계에서 다시 생성해 주세요.')}><Icon name="sparkle" size={14} />AI로 다시 만들기</button>
+              <button className="btn btn--ghost btn--sm" onClick={() => toast('이미지 교체는 아직 지원하지 않아요.')}><Icon name="image" size={14} />이미지 바꾸기</button>
             </div>
           </section>
-          <button className="btn btn--primary btn--block" onClick={save}>포트폴리오 초안 저장</button>
+          <button className="btn btn--primary btn--block" onClick={save}>이 기기에 포트폴리오 초안 저장</button>
           <div className="grid-2">
-            <button className="btn btn--ghost" onClick={() => toast('PDF로 내보내는 중이에요')}><Icon name="download" size={18} />PDF 내보내기</button>
-            <button className="btn btn--ghost" onClick={() => toast('PPT로 내보내는 중이에요')}><Icon name="download" size={18} />PPT 내보내기</button>
+            <button className="btn btn--ghost" onClick={() => toast('파일 내보내기는 서버의 생성 결과 저장 연결이 필요해요.')}><Icon name="download" size={18} />PDF 내보내기</button>
+            <button className="btn btn--ghost" onClick={() => toast('파일 내보내기는 서버의 생성 결과 저장 연결이 필요해요.')}><Icon name="download" size={18} />PPT 내보내기</button>
           </div>
         </>
       )}
@@ -249,8 +257,7 @@ function SlidePreview({ slide, index }: { slide: SlideItem; index: number }) {
         <p className="slide__desc">{slide.desc}</p>
         {L === '지표 강조' && (
           <div className="slide__metrics">
-            <span><b>+400</b>팔로워</span>
-            <span><b>주 3회</b>업로드</span>
+            {(slide.metrics ?? []).map((metric, i) => <span key={i}><b>{metric.value}{metric.unit}</b>{metric.label}</span>)}
           </div>
         )}
       </div>
@@ -258,7 +265,7 @@ function SlidePreview({ slide, index }: { slide: SlideItem; index: number }) {
         <div className="slide__visual">
           {L === '지표 강조' ? (
             <div className="slide__chart">
-              {[26, 34, 30, 48, 62, 96].map((v, i) => <i key={i} style={{ height: `${v}%` }} className={i === 5 ? 'is-hi' : ''} />)}
+              {(slide.metrics ?? []).map((metric, i) => <span key={i}>{metric.label}: {metric.value}{metric.unit}</span>)}
             </div>
           ) : (
             <MiniArt kind={slide.kind === 'text' ? 'grid' : slide.kind} w="100%" h="100%" />

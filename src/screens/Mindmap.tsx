@@ -1,3 +1,4 @@
+import { demoMode } from '../services/http';
 import { useState } from 'react';
 import Icon from '../components/Icon';
 import { Sheet } from '../components/Layout';
@@ -21,6 +22,7 @@ export default function Mindmap({ profile, setProfile, goTab, toast }: MindmapPr
 
   return (
     <div className="screen">
+      {!demoMode && <p className="notice notice--point" role="status">이 화면은 아직 샘플 데이터입니다. 서버 연동 전입니다.</p>}
       <div className="row row--between">
         <h1 className="h-title">역량 마인드맵</h1>
         <span className="badge badge--blue">{profile.grade} 맞춤</span>

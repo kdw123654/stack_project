@@ -2,8 +2,9 @@
 // Figma: FlowStepper 컴포넌트, '공고 분석 결과' 카드, thumb/* 미니 일러스트
 import { useState, type ReactNode } from 'react';
 import Icon from './Icon';
+import { questionLimitLabel } from '../services/questions';
 import { SegmentTabs } from './Layout';
-import type { MiniKind, Posting, PostingInput as PostingInputValue, SlideOptions } from '../types';
+import type { MiniKind, Posting, PostingInput as PostingInputValue, SlideOptions, Question } from '../types';
 
 /** 상단: ← 뒤로 / 제목 / (오른쪽 액션) */
 interface FlowHeaderProps {
@@ -117,14 +118,14 @@ interface PostingInputBase {
   onParse: (input: PostingInputValue) => void;
 }
 type PostingInputProps =
-  | (PostingInputBase & { kind: 'cover'; onAddQuestion: () => void })
+  | (PostingInputBase & { kind: 'cover'; onAddQuestion: () => void; onQuestionChange?: (question: Question) => void })
   | (PostingInputBase & { kind: 'slides'; options: SlideOptions; setOptions: (o: SlideOptions) => void });
 
 const SIZE_LABEL: Record<SlideOptions['size'], string> = { 6: '간단', 10: '기본', 14: '상세' };
 
 export function PostingInput(props: PostingInputProps) {
   const { kind, posting, loading, error, onParse } = props;
-  const [tab, setTab] = useState<'link' | 'text'>('link');
+  const [tab, setTab] = useState<'link' | 'text'>('text');
   const [url, setUrl] = useState('');
   const [text, setText] = useState('');
 
@@ -135,6 +136,7 @@ export function PostingInput(props: PostingInputProps) {
         value={tab}
         onChange={setTab}
       />
+      {tab === 'link' && <p className="t-caption">현재는 링크 수집을 지원하지 않아요. 공고 본문을 텍스트로 붙여넣어 주세요.</p>}
       {tab === 'link' ? (
         <div className="input-icon">
           <Icon name="link" size={18} />
@@ -151,12 +153,13 @@ export function PostingInput(props: PostingInputProps) {
         <textarea
           className="input"
           placeholder="공고 내용을 그대로 붙여넣어 주세요 (자격 요건·우대 사항·자소서 문항 포함)"
+          maxLength={80000}
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
       )}
       {!posting && (
-        <button className="btn btn--soft btn--block" disabled={loading || !(url.trim() || text.trim())} onClick={() => onParse({ url, text })}>
+        <button className="btn btn--soft btn--block" disabled={loading || !(tab === 'text' ? text.trim() : url.trim())} onClick={() => onParse(tab === 'text' ? { text } : { url })}>
           {loading ? <><Icon name="loader" className="spin" size={16} /> 공고 읽는 중</> : <><Icon name="sparkle" size={16} /> 공고 분석하기</>}
         </button>
       )}
@@ -168,22 +171,37 @@ export function PostingInput(props: PostingInputProps) {
             <h2 className="t-strong" style={{ fontSize: 14 }}>공고 분석 결과</h2>
             <span className="badge badge--success">AI 읽기 완료</span>
           </div>
-          <div className="kv-row"><span>기업·직무</span><b>{posting.company} · {posting.job}</b></div>
+          <div className="kv-row"><span>기업·직무</span><b>{posting.company ?? '기업 확인 필요'} · {posting.job ?? '직무 확인 필요'}</b></div>
           <div className="kv-row">
             <span>요구 역량</span>
             <div className="row wrap" style={{ gap: 6 }}>{posting.skills.map((s) => <span key={s} className="tag">{s}</span>)}</div>
           </div>
+          {(posting.warnings ?? []).map((warning, i) => <p key={i} className="notice notice--point">{warning}</p>)}
+          {!!posting.missingFields?.length && <p className="t-caption">누락된 정보가 있어요. 원문을 확인해 주세요: {posting.missingFields.join(', ')}</p>}
           {kind === 'cover' ? (
             <div className="stack-8">
               <div className="row row--between">
                 <span className="t-caption" style={{ fontWeight: 700, color: 'var(--text-2)' }}>자소서 문항 {posting.questions.length}개를 찾았어요</span>
                 {props.kind === 'cover' && <button className="link" onClick={props.onAddQuestion}>+ 문항 추가</button>}
               </div>
+              {(posting.needsManualQuestions || posting.questions.length === 0) && <p className="notice notice--point">자소서 문항을 찾지 못했어요. 원문을 확인하고 문항을 직접 추가해 주세요.</p>}
               {posting.questions.map((q) => (
-                <div key={q.id} className="q-row">
+                <div key={q.id} className="stack-8">
+                <div className="q-row">
                   <b>문항 {q.no}</b>
                   <span className="grow">{q.title}</span>
-                  <span className="t-caption">{q.limit}자</span>
+                  <span className="t-caption">{questionLimitLabel(q)}</span>
+                </div>
+                {props.kind === 'cover' && props.onQuestionChange && <div className="stack-8">
+                  <input className="input" aria-label={`문항 ${q.no} 내용`} value={q.title} onChange={e => props.onQuestionChange?.({ ...q, title: e.target.value, needsCheck: true })} />
+                  <input className="input" aria-label={`문항 ${q.no} 분량 제한`} placeholder="제한 미확인" type="number" min={1} value={q.limit ?? ''} onChange={e => props.onQuestionChange?.({ ...q, limit: e.target.value ? Math.max(1, Number(e.target.value)) : null, needsCheck: true })} />
+                  <select className="input" aria-label={`문항 ${q.no} 분량 단위`} value={q.countUnit ?? 'unknown'} onChange={e => props.onQuestionChange?.({ ...q, countUnit: e.target.value as Question['countUnit'], needsCheck: true })}>
+                    <option value="unknown">단위 미확인</option><option value="characters">글자</option><option value="bytes">바이트 (UTF-8)</option><option value="words">단어</option>
+                  </select>
+                  <select className="input" aria-label={`문항 ${q.no} 공백 기준`} value={q.includesSpaces == null ? 'unknown' : String(q.includesSpaces)} onChange={e => props.onQuestionChange?.({ ...q, includesSpaces: e.target.value === 'unknown' ? null : e.target.value === 'true', needsCheck: true })}>
+                    <option value="unknown">공백 기준 미확인</option><option value="true">공백 포함</option><option value="false">공백 제외</option>
+                  </select>
+                </div>}
                 </div>
               ))}
             </div>
@@ -224,7 +242,7 @@ export function ProgressCard({ title, caption, steps, step }: { title: string; c
           <div className="t-caption">{caption}</div>
         </div>
       </div>
-      <div className="progress"><div className="progress__bar" style={{ width: `${((step + 1) / steps.length) * 100}%` }} /></div>
+      <p className="t-caption" role="status">{steps[step]}</p>
       <ul className="step-list">
         {steps.map((s, i) => (
           <li key={s} className={i < step ? 'is-done' : i === step ? 'is-now' : ''}>

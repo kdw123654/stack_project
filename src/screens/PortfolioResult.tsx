@@ -29,23 +29,23 @@ export default function PortfolioResult({ result, setResult, files, onSave }: Po
     <>
       {/* 대표 이미지 + 추출 이미지 */}
       <section className="card stack-12">
-        <div className={`cover cover--${cover.kind}`}>
+        <div className={`cover cover--${(cover?.kind ?? 'text')}`}>
           <div className="cover__text">
-            <span className="cover__tag">SNS 콘텐츠 운영</span>
+            <span className="cover__tag">{result.category}</span>
             <strong>{result.summary}</strong>
-            <small>{result.period} · 팀 5명</small>
+            <small>{result.period}</small>
           </div>
           <div className="cover__art"><MiniArt kind={cover.kind} w={108} h={108} /></div>
-          <span className="cover__badge"><Icon name="image" size={12} />대표 이미지 · PPT {cover.page}p에서 추출</span>
+          <span className="cover__badge"><Icon name="image" size={12} />{cover ? '대표 이미지 · 위치 ' + cover.page + ' (원문 기준)' : '추출된 이미지 없음'}</span>
         </div>
         <div className="stack-8" style={{ gap: 6 }}>
           <div className="row row--between">
-            <span className="field__label">PPT에서 추출한 이미지 {result.images.length}</span>
+            <span className="field__label">문서에서 추출한 이미지 {result.images.length}</span>
             <span className="t-caption">눌러서 대표 이미지로</span>
           </div>
           <div className="thumbs">
             {result.images.map((img) => (
-              <MiniArt key={img.id} kind={img.kind} w="100%" h={50} selected={img.id === result.coverId} onClick={() => set({ coverId: img.id })} />
+              <button key={img.id} aria-label={img.label} aria-pressed={img.id === result.coverId} onClick={() => set({ coverId: img.id })}>{img.url ? <img src={img.url} alt={img.label} style={{ width: '100%', height: 50, objectFit: 'contain' }} /> : <MiniArt kind={img.kind} w="100%" h={50} selected={img.id === result.coverId} />}</button>
             ))}
           </div>
         </div>
@@ -143,14 +143,14 @@ function RoleBlock({ role, onChange }: { role: Role; onChange: (r: Role) => void
         </button>
       </div>
       <div className="role">
-        <Donut value={role.contribution} />
+        {role.contribution === null ? <span>기여도 확인 필요</span> : <Donut value={role.contribution} />}
         <div className="grow stack-8" style={{ gap: 4 }}>
           {editing ? (
             <>
               <input className="input" style={{ height: 36 }} value={role.title} onChange={(e) => onChange({ ...role, title: e.target.value })} />
               <label className="row t-caption" style={{ gap: 6 }}>
                 기여도
-                <input type="range" min="0" max="100" step="5" value={role.contribution} onChange={(e) => onChange({ ...role, contribution: Number(e.target.value) })} />
+                <input type="range" min="0" max="100" step="5" value={role.contribution ?? 0} onChange={(e) => onChange({ ...role, contribution: Number(e.target.value) })} />
               </label>
             </>
           ) : (

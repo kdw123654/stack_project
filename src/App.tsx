@@ -1,4 +1,8 @@
-import { useCallback, useState, type ReactElement } from 'react';
+import { LiveExplore, LiveMindmap, LiveSettings } from './screens/LiveData';
+import Login from './screens/Login';
+import { demoMode } from './services/http';
+import { getSession, loadProfile, listExperiences, saveTarget, logout } from './services/backend';
+import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import Icon from './components/Icon';
 import { AppHeader, TabBar, Sheet, Toast } from './components/Layout';
 import Home from './screens/Home';
@@ -14,9 +18,13 @@ import type { Experience, Profile, TabId, Toast as ToastFn } from './types';
 type ModalId = 'profile' | null;
 
 export default function App() {
+  const [authenticated, setAuthenticated] = useState(Boolean(getSession()));
+  const [loading, setLoading] = useState(!demoMode && Boolean(getSession()));
+  const [loadError, setLoadError] = useState('');
+  const [reload, setReload] = useState(0);
   const [tab, setTab] = useState<TabId>('home');
   const [profile, setProfile] = useState<Profile>(initialProfile);
-  const [experiences, setExperiences] = useState<Experience[]>(seedExperiences);
+  const [experiences, setExperiences] = useState<Experience[]>(demoMode ? seedExperiences : []);
   const [modal, setModal] = useState<ModalId>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
@@ -27,6 +35,28 @@ export default function App() {
     setToastMsg(msg);
     window.setTimeout(() => setToastMsg(''), 1800);
   }, []);
+
+  useEffect(() => {
+    const changed = () => setAuthenticated(Boolean(getSession()));
+    window.addEventListener('stack-auth', changed);
+    return () => window.removeEventListener('stack-auth', changed);
+  }, []);
+  useEffect(() => {
+    if (demoMode || !authenticated) return;
+    let active = true;
+    setLoading(true); setLoadError(''); setExperiences([]);
+    Promise.all([loadProfile(), listExperiences()]).then(([p, e]) => {
+      if (active) { setProfile(p); setExperiences(e); }
+    }).catch(e => { if (active) setLoadError(e instanceof Error ? e.message : '정보를 불러오지 못했어요.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [authenticated, reload]);
+  const persistTarget = async (p: Profile) => {
+    try { setProfile(demoMode ? p : await saveTarget(p)); setModal(null); toast('목표를 저장했어요'); }
+    catch (e) { toast(e instanceof Error ? e.message : '저장에 실패했어요.'); }
+  };
+  if (!demoMode && !authenticated) return <Login />;
+  if (!demoMode && (loading || loadError)) return <div className="screen"><p role="status">{loadError || '내 정보를 불러오는 중'}</p>{loadError && <button className="btn" onClick={() => setReload(n => n + 1)}>다시 시도</button>}<button className="link" onClick={() => void logout().catch(() => {})}>로그아웃</button></div>;
 
   const screens: Record<TabId, ReactElement> = {
     home: (
@@ -41,8 +71,8 @@ export default function App() {
       />
     ),
     experience: <MyExperience list={experiences} setList={setExperiences} toast={toast} />,
-    explore: <Explore profile={profile} goTab={setTab} toast={toast} />,
-    mindmap: <Mindmap profile={profile} setProfile={setProfile} goTab={setTab} toast={toast} />,
+    explore: demoMode ? <Explore profile={profile} goTab={setTab} toast={toast} /> : <LiveExplore toast={toast} />,
+    mindmap: demoMode ? <Mindmap profile={profile} setProfile={p => { void persistTarget(p); }} goTab={setTab} toast={toast} /> : <LiveMindmap key={profile.job + profile.targetCompany} profile={profile} experiences={experiences} editTarget={() => setModal('profile')} />,
   };
 
   return (
@@ -50,7 +80,7 @@ export default function App() {
       {/* 메인 탭: 로고 헤더가 내용과 함께 스크롤되어 사라짐 / 상세 화면: 헤더 숨김 + 뒤로 줄 고정 */}
       <HeaderContext.Provider value={setHideHeader}>
         <main key={tab} className="scroller">
-          {settingsOpen ? (
+          {settingsOpen && !demoMode ? <LiveSettings onClose={() => setSettingsOpen(false)} onEditProfile={() => setModal('profile')} toast={toast} /> : settingsOpen ? (
             <SettingsScreen
               profile={profile}
               experiences={experiences}
@@ -67,17 +97,14 @@ export default function App() {
           )}
         </main>
       </HeaderContext.Provider>
+      {!demoMode && <button className="link" onClick={() => void logout().catch(e => toast(e.message))}>로그아웃</button>}
       <TabBar active={tab} onChange={setTab} />
 
       {modal === 'profile' && (
         <ProfileModal
           profile={profile}
           onClose={() => setModal(null)}
-          onSave={(p) => {
-            setProfile(p);
-            setModal(null);
-            toast('프로필을 저장했어요');
-          }}
+          onSave={p => { void persistTarget(p); }}
         />
       )}
       <Toast message={toastMsg} />

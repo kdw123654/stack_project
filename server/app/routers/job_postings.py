@@ -9,8 +9,20 @@ from app.db import db
 from app.deps import get_current_user
 from app.schemas.generated import PostingImport
 from app.services.generated import normalize_questions, payload_hash
+from app.services.posting_fetch import fetch_posting
+from pydantic import AnyHttpUrl
 
 router = APIRouter(tags=["job_postings"])
+
+
+class FetchRequest(BaseModel):
+    url: AnyHttpUrl
+
+
+@router.post("/job-postings/fetch")
+def fetch_url(body: FetchRequest, user: dict = Depends(get_current_user)):
+    url = str(body.url)
+    return ok({"sourceType": "URL", "url": url, "text": fetch_posting(url)})
 
 class Question(BaseModel):
     id: Optional[str] = Field(default=None, min_length=1, max_length=128)

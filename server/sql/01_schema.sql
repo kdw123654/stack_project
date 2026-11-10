@@ -60,8 +60,14 @@ create table job_postings (
   position text,
   required_competencies jsonb not null default '[]',
   questions jsonb not null default '[]',
+  source_analysis_id text,
+  source_analysis_hash text,
+  analysis_metadata jsonb not null default '{}',
   created_at timestamptz not null default now()
 );
+
+create unique index if not exists job_postings_user_source_analysis_uidx
+  on job_postings (user_id, source_analysis_id);
 
 create table cover_letters (
   id uuid primary key default gen_random_uuid(),

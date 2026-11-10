@@ -1,14 +1,15 @@
 # STACK v2 — 프론트엔드 코드 (React + TypeScript)
 
-React 18 + TypeScript 5 (strict) + Vite 5, 순수 CSS(디자인 토큰 변수). 추가 UI 라이브러리 없음 → 어느 React + TS 프로젝트에도 폴더째 복붙 가능.
+React 18 + TypeScript 5 (strict) + Vite 5 기반 프론트엔드입니다. A(AI)·B(인증/DB) 서버의 API 호출 코드를 구현했습니다. 실제 서버 연동 검증과 일부 기능 연결은 남아 있습니다.
 
 ## 실행
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm run typecheck  # tsc --noEmit (타입 오류 0개 상태로 전달)
+npm run typecheck  # TypeScript 검사
 npm run build      # 타입 검사 후 dist/ 생성
+npm run test:api   # 모의 HTTP 응답 기반 테스트
 ```
 
 ## 폴더 구조
@@ -16,7 +17,7 @@ npm run build      # 타입 검사 후 dist/ 생성
 ```
 src/
 ├─ main.tsx                 # 진입점 (tokens.css, app.css 로드)
-├─ App.tsx                  # 탭 전환, 헤더/탭바, 프로필(CM-03)·설정(CM-05/06) 모달
+├─ App.tsx                  # 로그인 상태, 내 정보 로딩, 탭 전환, 목표 설정
 ├─ types.ts                 # ★ 도메인 타입 전부 (Profile, Experience, 모드별 결과, 공고·슬라이드 …)
 ├─ vite-env.d.ts            # SVG 등 에셋 import 타입
 ├─ assets/stack-icon.svg    # 앱 아이콘(라운드 원본) — 온보딩 외 모든 로고
@@ -35,13 +36,21 @@ src/
 │  ├─ CoverLetterFlow.tsx   # EX-03 자소서 4단계
 │  ├─ PortfolioFlow.tsx     # EX-04 포폴 슬라이드 4단계
 │  ├─ MyExperience.tsx      # EX: 서류 빌더, 코칭 신청, 보관함, 경험 상세
-│  ├─ Explore.tsx           # DS: 교내외 공고, 학교 취업 통계(수원대 전체), 선배 Q&A
-│  └─ Mindmap.tsx           # MP: 목표 설정(직접 입력), 역량 진단, 목표 기업 비교, 유사 사용자 비교(잠금)
-├─ data/mock.ts             # 화면 확인용 목업 (types.ts 타입 적용)
-└─ services/api.ts          # API 함수 자리 (지금은 목업 반환, 반환 타입 명시)
+│  ├─ Login.tsx             # 학번 로그인·학교 이메일 인증·비밀번호 등록
+│  ├─ LiveData.tsx          # 실제 API 사용: 탐색·통계·선배 Q&A·진단·설정
+│  ├─ Explore.tsx           # 샘플 모드의 탐색 화면
+│  ├─ Mindmap.tsx           # 샘플 모드의 마인드맵 화면
+│  └─ Settings.tsx          # 샘플 모드의 설정 화면
+├─ data/mock.ts             # 샘플 모드 데이터 및 공통 표시 상수
+└─ services/
+   ├─ api.ts                # 화면에서 사용하는 분석·추천·생성·경험 저장 함수
+   ├─ http.ts               # A 요청·작업 폴링·이미지 경로
+   ├─ career.ts             # A 추천·자소서·슬라이드 요청/응답 변환
+   ├─ backend.ts            # B 인증·토큰 갱신·프로필·경험·원본 파일
+   └─ questions.ts          # 문항 분량 단위·공백 기준·UTF-8 바이트 계산
 ```
 
-## 헤더·탭바 규칙 (피그마와 동일)
+## 헤더·탭바 구조
 
 | 영역 | 동작 | 코드 |
 |---|---|---|
@@ -49,47 +58,75 @@ src/
 | 메인 탭 4개의 로고 헤더 | 내용과 함께 스크롤되어 사라짐 | `App.tsx` — `.scroller` 안에 `AppHeader` |
 | 상세·단계 화면 | 로고 헤더 숨김, "← 뒤로 + 제목 (+ 저장)" 줄 상단 고정 | `useHideHeader(true)` + `SubHeader`/`FlowHeader` (`position: sticky`) |
 
-## 프로필·통계 데이터 규칙
+## 프로필·통계 데이터
 
-| 항목 | 출처 | 코드 |
-|---|---|---|
-| 학교 | 수원대학교 인증 | — |
-| 소속 학과·학년 | 수원대 포털 연동, **수정 불가** | `App.tsx > LockedField` + 안내 문구 |
-| 희망 직무·목표 기업 | 사용자 직접 텍스트 입력 (추천 칩은 보조) | `ProfileModal`, `Mindmap > TargetSheet` |
-| 취업 통계 | 수원대학교 **전체** 공식 자료만, 학과별 미제공 | `Explore > SchoolStatsView`, `SchoolStats` 타입 |
-| 공식 수치가 없을 때 | 임의 숫자 대신 '자료 준비 중' | `overall[].value: string \| null` |
+| 항목 | 현재 동작 |
+|---|---|
+| 학교 인증 | B의 학교 이메일 인증·학번 등록. 실제 학교 포털 자동 연계는 미구현 |
+| 학과·학년 | B DB 프로필 조회값을 표시. 현재 프로필 화면에서는 읽기 전용 |
+| 희망 직무·목표 기업 | 사용자 입력 후 B 목표 수정 API로 저장 |
+| 취업 통계 | B에 등록된 학교 전체 통계와 출처 표시. 빈 목록은 자료 준비 중으로 표시 |
+| 역량 진단 | 사용자가 입력한 기준으로 A 태그 기반 진단. 공식 직무 기준이나 취업 확률이 아님 |
 
-> ⚠️ `mock.ts`의 `schoolStats.byJob`(직무별 진출 비율)은 피그마 시안 값입니다. 실제 배포 전 수원대 취업지원처 공식 자료와 대조해 주세요.
+샘플 모드의 통계·인물·경험은 화면 확인용입니다. 실제 모드는 서버 데이터를 사용하며, 공식 자료의 정확성은 데이터 등록 시 확인해야 합니다.
 
 ## 타입 사용 팁
 
 - 모드별 AI 결과는 `TaggedResult` 유니온으로 들고 다녀요. `if (r.mode === 'portfolio')` 하면 `r.data`가 `PortfolioResult`로 좁혀집니다.
 - `analyzeFiles<M>(files, mode)`는 모드에 따라 반환 타입이 자동으로 정해집니다 (`ResultByMode[M]`).
-- 백엔드 응답 스키마를 `types.ts`에 맞추면 화면 코드는 수정할 필요가 없어요.
+- A/B 응답은 `services`에서 화면 타입으로 변환합니다. 분석 응답의 `result.data`와 공고 응답의 `data`를 구분합니다.
+- 기업·직무·문항 분량 제한·포트폴리오 기여도는 누락 시 `null`을 유지합니다.
 
-## 백엔드 연결 상태
+## API 연결 설정
 
-백엔드 STACK_BE 커밋 22005747d66c2cf2d11431c917bdcad3655c38db의 라우터·Pydantic 모델·INDEPENDENT_API.md를 확인해 연결했습니다.
+처음 설정할 때 프로젝트 루트의 .env.example을 .env.local로 복사하세요. 기존 .env.local이 있으면 필요한 항목만 수정합니다.
 
-| 기능 | 연결 |
+| 설정 | 기본값 | 용도 |
+|---|---|---|
+| AI_API_PROXY_TARGET | http://127.0.0.1:8000 | A 서버의 개발 프록시 대상 |
+| BACKEND_API_PROXY_TARGET | http://127.0.0.1:8001 | B 서버의 개발 프록시 대상 |
+| VITE_AI_API_BASE_URL | /ai-api | 브라우저가 호출하는 A 기본 경로 |
+| VITE_BACKEND_API_BASE_URL | /backend-api/api/v1 | 브라우저가 호출하는 B 기본 경로 |
+| VITE_API_MOCK | false | true이면 로그인 없이 샘플 모드로 확인 |
+
+실제 모드의 로그인·분석에는 실행 중인 백엔드가 필요합니다. 로컬에서 두 서버를 함께 실행할 경우 다른 포트를 사용하세요. 위 설정에서는 A가 8000, B가 8001입니다. 환경 변수를 변경하면 프론트 개발 서버를 재시작합니다.
+
+프론트 화면만 확인하려면 .env.local의 VITE_API_MOCK을 true로 설정합니다. 이때 분석·저장은 샘플 동작입니다.
+
+배포 시 두 경로의 리버스 프록시를 구성하거나 VITE_*_API_BASE_URL을 실제 서버 주소로 바꾸고 CORS를 설정해야 합니다. B 주소에는 /api/v1을 포함합니다. Vite server.proxy는 개발 서버에서만 적용됩니다. OpenAI 키와 Supabase 서비스 키는 서버에만 설정합니다.
+
+## 구현한 API 호출
+
+기준 백엔드: STACK_BE 커밋 22005747d66c2cf2d11431c917bdcad3655c38db.
+아래는 요청·응답 처리 구현 상태이며 실제 서버에서 정상 동작 확인을 마쳤다는 뜻은 아닙니다.
+
+| 기능 | 현재 구현 |
 |---|---|
-| 문서 분석·공고 분석 | A 작업 생성 → 2초 폴링 → 결과 조회. result.data 및 data 사용, 서버 stage·부분 실패·경고 처리 |
-| 경험 추천 | A 태그 기반 추천 API. FE 메타데이터를 제거한 엄격한 DTO 전달 |
-| 자소서 생성·문항 재생성 | A 생성 API → ai-results 조회. 문항별 경험 선택, 성공 후 결과 교체 |
-| 슬라이드 구성·내용 생성 | A outline/generate. 구성안 근거 경험 ID 유지, 6/10/14장 검증 |
-| 로그인·가입 | B 학번 로그인, 이메일 코드 인증, 비밀번호 등록, 세션 토큰 갱신·로그아웃 |
-| 프로필·목표 | B 내 정보 조회 및 목표 수정 |
-| 경험 DB | B 전체 페이지 조회·저장·수정·삭제. 화면 메모는 portfolio.frontend에 보존 |
-| 자소서·포트폴리오 초안 저장 | 사용자별 이 기기에 저장하고 보관함에서 다시 열기. B에 A 최초 생성 결과를 넣는 HTTP API가 없음 |
+| 파일·공고 분석 | A 작업 생성 → 2초 폴링 → 결과 조회. 서버 단계·부분 실패·경고 처리 |
+| 모드 변경 | A remode로 추출 내용을 재사용해 재분석 |
+| 원본 파일 | B 파일 보관·최근 목록·서명 URL 다운로드 후 재사용. B는 WEBP 보관 미지원 |
+| 경험 추천 | A 태그 기반 추천 API, 엄격한 요청 DTO로 변환 |
+| 자소서 | A 생성·문항 재생성, taskId 결과 조회, 성공 후 문항 교체 |
+| 슬라이드 | A 구성·내용 생성, 6/10/14장·근거 경험 ID 처리 |
+| 로그인·가입 | B 학번 로그인·이메일 인증·비밀번호 등록·토큰 갱신·로그아웃 |
+| 프로필·목표 | B 내 정보 조회·희망 직무/목표 기업 수정 |
+| 경험 DB | B 조회·저장·수정·삭제. 역할·성과·분석 결과 보존 |
+| 탐색·설정 | B 공고·학교 통계·선배 Q&A·비교·동의·정책·인증·데이터 내보내기·탈퇴 |
+| 역량 진단 | A 사용자 입력 기준의 태그 기반 진단 |
+| 생성 초안 보관 | 계정별 기기 저장·다시 열기. 서버 저장은 미완료 |
 
-.env.example을 .env.local로 복사하고 npm run dev를 실행하세요. A 기본 주소는 http://127.0.0.1:8000, B는 http://127.0.0.1:8001입니다. B 실행 시 --port 8001을 사용해야 두 서버를 함께 실행할 수 있습니다. AI_API_PROXY_TARGET과 BACKEND_API_PROXY_TARGET으로 변경할 수 있습니다. 프록시 경로는 /ai-api 및 /backend-api이며 B의 /api/v1 접두사를 유지합니다.
+공고 문항의 내용·분량 제한·단위·공백 기준을 직접 수정할 수 있습니다. 분석 결과 편집은 현재 화면과 B 저장 객체에 반영하며 A 수정 이력 API에는 아직 반영하지 않습니다. 자유 입력 경험 기간 등 FE 추가 필드는 portfolio.frontend에 보존합니다.
 
-배포에서는 두 프록시를 구성하거나 VITE_AI_API_BASE_URL과 VITE_BACKEND_API_BASE_URL(B는 /api/v1 포함)을 실제 서버로 지정하고 CORS를 설정하세요. Vite 개발용 프록시는 배포 빌드에 포함되지 않습니다. 비밀 키는 서버에만 설정합니다. VITE_API_MOCK=true를 명시하면 샘플 모드로 실행합니다. 실제 모드는 로그인 후 개인 경험 DB를 사용합니다. A는 아직 인증/소유권 확인 없는 개발용 서버이므로 현재 직접 호출 구조는 로컬 개발용입니다.
+## 남은 작업과 검증 범위
 
-실제 모드의 탐색·선배 Q&A·학교 전체 통계는 B API를 사용합니다. 마인드맵은 사용자 입력 기준을 A에 전달해 진단하고 B 선배 비교를 조회합니다. 설정은 B 동의·인증·정책·내보내기·탈퇴 API를 호출합니다. 기존 시안 화면은 샘플 모드에서만 사용합니다. 포트폴리오 내보내기는 B에 생성 결과 저장 경로가 추가된 후 연결할 수 있습니다. B의 update_cl/update_pf는 Python 내부 함수로만 제공되며 프론트에서 직접 호출할 수 없습니다. 현재 생성 결과를 받아 넣는 HTTP 경로를 추측해 만들지 않았습니다.
+- 백엔드 연결 추가: A 생성 결과를 B 공고·자소서·포트폴리오 DB에 처음 저장하는 HTTP 인터페이스와 ID 매핑. 현재 save_posting/update_cl/update_pf는 Python 내부 함수입니다.
+- 서버 저장 후 연결: PDF/PPTX 내보내기. B 출력 API와 렌더러는 있으며 A/B 슬라이드 형식 변환과 PDF용 LibreOffice 설정도 필요합니다.
+- 백엔드 API 추가 또는 합의: URL 공고 수집, 슬라이드 한 장만 AI 재생성.
+- 프론트 작업: 실제 슬라이드 이미지 표시/교체, 분석 수정 이력, 저장 프로젝트·질문 답변 목록 등. API가 이미 있는 미연결 기능도 포함됩니다.
+- 운영 준비: A 인증·사용자 소유권 확인, 이미지 영구 보관 및 A/B 데이터 삭제 연계, 배포 설정.
 
-URL 수집은 B에 크롤러 내부 함수만 있고 본문을 반환하는 URL HTTP API가 없어 공고 본문 입력을 사용합니다. 분석 결과에서 모드 변경은 A /analyses/{id}/remode로 추출 내용을 재사용합니다. 홈의 원본 보관 버튼은 B /files에 업로드하며 최근 파일은 목록·상세의 서명 다운로드 URL로 받아 A에 다시 분석 요청합니다. 보관 파일이 없으면 목록은 비어 있습니다. B 원본 보관 API는 A와 달리 WEBP를 허용하지 않아 원본 보관 시 사전 안내합니다. 공고 문항은 nullable 제한·단위·공백 기준을 유지합니다. INDEPENDENT_API에서 지정한 UTF-8 바이트 계산을 사용합니다.
+모의 HTTP 테스트·타입 검사·빌드는 통과했습니다. 실제 A/B 서버, Supabase 인증/저장소, AI/OCR, 파일 출력 및 화면 검증은 아직 완료하지 않았습니다.
 
-검증 명령: npm run test:api, npm run build. 전자는 모의 HTTP 응답 기반 계약 테스트이며 실제 서버 실행/AI 품질 검증은 포함하지 않습니다. 제공받은 두 문서는 docs/BACKEND_A_API.md, docs/BACKEND_README.md에 보관했습니다.
+자세한 근거와 기능별 상태는 [연동 재점검](docs/INTEGRATION_AUDIT.md), 백엔드 요청 사항은 [연동 미완료 항목](docs/INTEGRATION_GAPS.md)을 참고하세요.
 
-공고 문항의 내용·제한·분량 단위·공백 기준을 분석 후 직접 수정할 수 있습니다. 경험 저장 시 역할·성과·분석 결과 전체를 함께 보존합니다.
+참고용으로 받은 백엔드 문서 원본은 [Backend A API 초안](docs/BACKEND_A_API.md), [백엔드 README](docs/BACKEND_README.md)에 보관했습니다. 프론트의 현재 상태는 이 README와 연동 재점검 문서를 기준으로 확인하세요.

@@ -1,0 +1,62 @@
+/* =========================================================
+   STACK v2 Design Tokens — Light mode / Navy · Blue
+   Figma 페이지 "STACK v2 · 회의 반영"의 컬러 스타일과 1:1 대응
+   ========================================================= */
+:root {
+  /* Main — Navy (앱 아이콘 배경색 기반) */
+  --navy-900: #0b1f4b;
+  --navy-800: #12306b;
+  --navy-700: #1b3f8b;
+
+  /* Sub — Blue (앱 아이콘 스택 레이어 기반) */
+  --blue-600: #2563eb;
+  --blue-500: #3b82f6;
+  --blue-200: #c9dbff;
+  --blue-100: #e6eeff;
+  --blue-50: #f3f7ff;
+
+  /* Point — 네이비 보색(오렌지) : 강조·마감·보완 필요 */
+  --point-500: #ff7a2f;
+  --point-600: #e8621a;
+  --point-50: #fff1e8;
+
+  /* Status */
+  --success-600: #0f9a63;
+  --success-50: #e6f7ef;
+
+  /* Neutral */
+  --bg: #f5f8fe;
+  --surface: #ffffff;
+  --surface-2: #f1f4fa;
+  --line: #e2e8f3;
+  --line-strong: #cfd8e8;
+
+  /* Text */
+  --text-1: #0e1a3a;
+  --text-2: #4b587a;
+  --text-3: #8792ae;
+  --text-on-navy: #ffffff;
+
+  /* Radius / Spacing / Shadow */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-full: 999px;
+  --gutter: 20px;
+  --shadow-card: 0 1px 2px rgba(11, 31, 75, 0.04), 0 4px 16px rgba(11, 31, 75, 0.06);
+  --shadow-pop: 0 12px 40px rgba(11, 31, 75, 0.18);
+
+  /* Type */
+  --font: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+    'Noto Sans KR', sans-serif;
+  --fs-display: 22px;
+  --fs-title: 18px;
+  --fs-sub: 16px;
+  --fs-body: 14px;
+  --fs-caption: 12px;
+  --fs-micro: 11px;
+
+  --tabbar-h: 64px;
+  --header-h: 64px;
+}

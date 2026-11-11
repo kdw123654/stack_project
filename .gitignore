@@ -10,10 +10,17 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 
+# 프론트엔드 (Vite)
+node_modules/
+dist/
+.vite/
+*.log
+
 # A (AI 서버) 작업 폴더
 uploads/
 output/
-tests/
+tests/*
+!tests/api.test.mjs
 data/
 AGENTS.md
 

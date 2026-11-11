@@ -12,13 +12,18 @@ export function setSession(session: Session | null) {
   window.dispatchEvent(new Event('stack-auth'));
 }
 let refreshing: Promise<void> | null = null;
+export class BackendError extends Error {
+  constructor(message: string, readonly code?: string) {
+    super(message);
+  }
+}
 export async function backend<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   const session = getSession();
   if (session) headers.set('Authorization', `Bearer ${session.accessToken}`);
   let response: Response;
-  try { response = await fetch(`${base}${path}`, { ...init, headers, signal: AbortSignal.timeout(60_000) }); }
+  try { response = await fetch(`${base}${path}`, { ...init, headers, signal: init.signal ?? AbortSignal.timeout(60_000) }); }
   catch { throw new Error('서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.'); }
   if (response.status === 401 && retry && session && !path.startsWith('/auth/')) {
     refreshing ??= backend<Session>('/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken: session.refreshToken }) }, false)
@@ -26,8 +31,9 @@ export async function backend<T>(path: string, init: RequestInit = {}, retry = t
     await refreshing;
     return backend<T>(path, init, false);
   }
+  if (response.ok && response.headers.get('Content-Type')?.startsWith('image/png')) return await response.blob() as T;
   const body = await response.json().catch(() => null);
-  if (!response.ok || body?.success !== true) throw new Error(body?.error?.message || `요청에 실패했어요 (${response.status}).`);
+  if (!response.ok || body?.success !== true) throw new BackendError(body?.error?.message || `요청에 실패했어요 (${response.status}).`, body?.error?.code);
   return body.data as T;
 }
 export async function login(studentId: string, password: string) {

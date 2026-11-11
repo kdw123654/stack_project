@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { analysisImageUrl, exportPortfolio, readProjectImage, storePortfolio, type ExportFormat, type ProjectRef } from '../services/generatedStorage';
+import { rewriteSlide } from '../services/career';
+import { demoMode } from '../services/http';
+import { useEffect, useState } from 'react';
 import Icon from '../components/Icon';
 import { FlowHeader, Stepper, TitleBlock, Checkbox, PostingInput, MiniArt } from '../components/Flow';
 import { FIT_META } from '../data/mock';
@@ -9,7 +12,7 @@ import type {
 
 interface PortfolioFlowProps {
   experiences: Experience[];
-  initial?: { posting: Posting; slides: SlideItem[]; picked: MatchedExperience[] };
+  initial?: { posting: Posting; slides: SlideItem[]; picked: MatchedExperience[]; project?: ProjectRef; options?: SlideOptions };
   onExit: () => void;
   onSaved?: (payload: { kind: 'slides'; posting: Posting; slides: SlideItem[] }) => void;
   toast: Toast;
@@ -27,11 +30,14 @@ const TYPE_BADGE: Partial<Record<SlideType, string>> = { 성과: 'badge--point',
 const LAYOUTS: SlideLayout[] = ['지표 강조', '이미지 강조', '텍스트 강조'];
 
 export default function PortfolioFlow({ experiences, onExit, onSaved, toast, initial }: PortfolioFlowProps) {
+  const [project, setProject] = useState(initial?.project);
+  const [busy, setBusy] = useState(false);
+  const [pendingImages, setPendingImages] = useState(new Map<string, File>());
   const [step, setStep] = useState<Step>(initial ? 4 : 1);
   const [posting, setPosting] = useState<Posting | null>(initial?.posting ?? null);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState('');
-  const [options, setOptions] = useState<SlideOptions>({ size: 10, format: 'PDF' });
+  const [options, setOptions] = useState<SlideOptions>(initial?.options ?? { size: 10, format: 'PDF' });
   const [matched, setMatched] = useState<MatchedExperience[]>(initial?.picked ?? []);
   const [outline, setOutline] = useState<SlideItem[]>(initial?.slides ?? []);
   const [generating, setGenerating] = useState(false);
@@ -83,12 +89,66 @@ export default function PortfolioFlow({ experiences, onExit, onSaved, toast, ini
     setStep(4);
     } catch (e) { toast(errMsg(e)); } finally { setGenerating(false); }
   };
-  const save = () => {
-    if (!posting) return;
-    try { localStorage.setItem('stack.slides.' + (sessionStorage.getItem('stack.userId') || 'demo'), JSON.stringify({ posting, slides, picked })); } catch { return toast('기기 저장 공간을 확인해 주세요.'); }
-    onSaved?.({ kind: 'slides', posting, slides });
-    toast('이 기기에 포트폴리오 초안을 저장했어요');
-    onExit();
+  const canSaveToServer = !demoMode && Boolean(posting?.source && slides.length && slides.every(slide => slide.generation));
+  const save = async (format?: ExportFormat) => {
+    if (!posting || busy) return;
+    if (format && !canSaveToServer) return toast('공고를 다시 분석하고 슬라이드를 생성하면 내보낼 수 있어요.');
+    const storageKey = 'stack.slides.' + (sessionStorage.getItem('stack.userId') || 'demo');
+    const remember = (ref?: ProjectRef) => {
+      const checkpoint = ref && { id: ref.id, postingId: ref.postingId, updatedAt: ref.updatedAt, length: ref.length };
+      setProject(checkpoint);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify({ posting, slides, picked, project: checkpoint, options }));
+      } catch {
+        if (!canSaveToServer) throw new Error('기기 저장 공간을 확인해 주세요.');
+      }
+    };
+    setBusy(true);
+    try {
+      remember(project);
+      if (canSaveToServer) {
+        const saved = await storePortfolio(posting, slides, format ?? (options.format === 'PPT' ? 'PPTX' : 'PDF'), project, remember, picked, pendingImages);
+        setPendingImages(new Map());
+        if (format) {
+          const { downloadUrl } = await exportPortfolio(saved.id, format);
+          const link = document.createElement('a');
+          link.href = downloadUrl;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.click();
+          return;
+        }
+      }
+      onSaved?.({ kind: 'slides', posting, slides });
+      toast(canSaveToServer ? '포트폴리오 초안을 서버에 저장했어요' : '이 기기에 포트폴리오 초안을 저장했어요');
+      onExit();
+    } catch (e) {
+      toast(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const regenerate = async () => {
+    if (!posting || !slide || busy) return;
+    setBusy(true);
+    try {
+      const next = await rewriteSlide(posting, picked, slide);
+      setSlides(current => current.map(item => item.id === next.id ? next : item));
+      toast('선택한 슬라이드의 새 초안을 만들었어요');
+    } catch (e) {
+      toast(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectImage = (file?: File) => {
+    if (!file || !slide || busy) return;
+    if (file.size > 2 * 1024 * 1024) return toast('이미지는 최대 2MiB까지 선택할 수 있어요.');
+    const id = crypto.randomUUID();
+    setPendingImages(current => new Map(current).set(id, file));
+    setSlide({ imageIds: [id, ...(slide.imageIds ?? []).slice(1)], layout: '이미지 강조' });
   };
 
   const back: Record<Step, [string, () => void]> = {
@@ -99,15 +159,15 @@ export default function PortfolioFlow({ experiences, onExit, onSaved, toast, ini
   };
   const [backLabel, onBack] = back[step];
   const slide = slides[cur];
-  const setSlide = (patch: Partial<SlideItem>) => setSlides(slides.map((s, i) => (i === cur ? { ...s, ...patch } : s)));
+  const setSlide = (patch: Partial<SlideItem>) => !busy && setSlides(slides.map((s, i) => (i === cur ? { ...s, ...patch } : s)));
 
   return (
     <div className="screen">
       <FlowHeader
         backLabel={backLabel}
-        onBack={onBack}
+        onBack={() => { if (!busy && !generating) onBack(); }}
         title="포폴 슬라이드"
-        right={step === 4 && <button className="btn btn--primary btn--sm" onClick={save}>저장</button>}
+        right={step === 4 && <button className="btn btn--primary btn--sm" disabled={busy} onClick={() => void save()}>저장</button>}
       />
       <Stepper labels={LABELS} current={step} />
 
@@ -197,7 +257,7 @@ export default function PortfolioFlow({ experiences, onExit, onSaved, toast, ini
       {/* ④ 미리보기 · 수정 */}
       {step === 4 && slide && (
         <>
-          <SlidePreview slide={slide} index={cur} />
+          <SlidePreview slide={slide} index={cur} projectId={project?.id} picked={picked} pendingImages={pendingImages} />
           <div className="row">
             <span className="t-strong grow" style={{ fontSize: 13 }}>슬라이드 {cur + 1} / {slides.length} · {slide.title}</span>
             <button className="icon-btn" style={{ width: 32, height: 32 }} disabled={cur === 0} onClick={() => setCur(cur - 1)} aria-label="이전 슬라이드"><Icon name="chevronL" size={16} /></button>
@@ -218,27 +278,34 @@ export default function PortfolioFlow({ experiences, onExit, onSaved, toast, ini
             </div>
             <label className="field">
               <span className="field__label">제목</span>
-              <input className="input" value={slide.title} onChange={(e) => setSlide({ title: e.target.value })} />
+              <input className="input" maxLength={200} value={slide.title} onChange={(e) => setSlide({ title: e.target.value })} />
             </label>
             <label className="field">
               <span className="field__label">핵심 문장</span>
               <textarea className="input" style={{ height: 72 }} value={slide.desc} onChange={(e) => setSlide({ desc: e.target.value })} />
             </label>
-            <span className="field__label">레이아웃</span>
+            <span className="field__label">미리보기 레이아웃</span>
             <div className="row wrap" style={{ gap: 6 }}>
               {LAYOUTS.map((l) => (
                 <button key={l} className={`chip ${slide.layout === l ? 'is-active' : ''}`} onClick={() => setSlide({ layout: l })}>{l}</button>
               ))}
             </div>
             <div className="grid-2">
-              <button className="btn btn--soft btn--sm" onClick={() => toast('현재 API는 전체 슬라이드 생성을 지원합니다. 슬라이드 구성 단계에서 다시 생성해 주세요.')}><Icon name="sparkle" size={14} />AI로 다시 만들기</button>
-              <button className="btn btn--ghost btn--sm" onClick={() => toast('이미지 교체는 아직 지원하지 않아요.')}><Icon name="image" size={14} />이미지 바꾸기</button>
+              <button className="btn btn--soft btn--sm" disabled={busy || !canSaveToServer} onClick={() => void regenerate()}><Icon name="sparkle" size={14} />AI로 다시 만들기</button>
+              <label className="field">
+                <span className="field__label">이미지 선택·교체</span>
+                <input type="file" accept="image/*" disabled={busy || !canSaveToServer} onChange={e => {
+                  selectImage(e.target.files?.[0]);
+                  e.target.value = '';
+                }} />
+              </label>
+              {!!slide.imageIds?.length && <button className="btn btn--ghost btn--sm" disabled={busy} onClick={() => setSlide({ imageIds: [] })}>이미지 제거</button>}
             </div>
           </section>
-          <button className="btn btn--primary btn--block" onClick={save}>이 기기에 포트폴리오 초안 저장</button>
+          <button className="btn btn--primary btn--block" disabled={busy} onClick={() => void save()}>{busy ? '처리 중' : canSaveToServer ? '포트폴리오 서버 저장' : '이 기기에 포트폴리오 초안 저장'}</button>
           <div className="grid-2">
-            <button className="btn btn--ghost" onClick={() => toast('파일 내보내기는 서버의 생성 결과 저장 연결이 필요해요.')}><Icon name="download" size={18} />PDF 내보내기</button>
-            <button className="btn btn--ghost" onClick={() => toast('파일 내보내기는 서버의 생성 결과 저장 연결이 필요해요.')}><Icon name="download" size={18} />PPT 내보내기</button>
+            <button className="btn btn--ghost" disabled={busy || !canSaveToServer} onClick={() => void save('PDF')}><Icon name="download" size={18} />PDF 내보내기</button>
+            <button className="btn btn--ghost" disabled={busy || !canSaveToServer} onClick={() => void save('PPTX')}><Icon name="download" size={18} />PPTX 내보내기</button>
           </div>
         </>
       )}
@@ -247,7 +314,9 @@ export default function PortfolioFlow({ experiences, onExit, onSaved, toast, ini
 }
 
 /** 16:9 슬라이드 미리보기 — 레이아웃에 따라 구성이 바뀜 */
-function SlidePreview({ slide, index }: { slide: SlideItem; index: number }) {
+function SlidePreview({ slide, index, projectId, picked, pendingImages }: {
+  slide: SlideItem; index: number; projectId?: string; picked: Experience[]; pendingImages: ReadonlyMap<string, File>;
+}) {
   const L = slide.layout;
   return (
     <div className={`slide slide--${L === '지표 강조' ? 'metric' : L === '이미지 강조' ? 'image' : 'text'}`} aria-label={`슬라이드 ${index + 1} 미리보기`}>
@@ -261,9 +330,9 @@ function SlidePreview({ slide, index }: { slide: SlideItem; index: number }) {
           </div>
         )}
       </div>
-      {L !== '텍스트 강조' && (
+      {(Boolean(slide.imageIds?.length) || L !== '텍스트 강조') && (
         <div className="slide__visual">
-          {L === '지표 강조' ? (
+          {slide.imageIds?.length ? slide.imageIds.map(id => <SlideImage key={id} imageId={id} projectId={projectId} pending={pendingImages.get(id)} fallback={analysisImageUrl(id, picked)} />) : L === '지표 강조' ? (
             <div className="slide__chart">
               {(slide.metrics ?? []).map((metric, i) => <span key={i}>{metric.label}: {metric.value}{metric.unit}</span>)}
             </div>
@@ -274,4 +343,29 @@ function SlidePreview({ slide, index }: { slide: SlideItem; index: number }) {
       )}
     </div>
   );
+}
+
+function SlideImage({ imageId, projectId, pending, fallback }: {
+  imageId: string; projectId?: string; pending?: File; fallback?: string;
+}) {
+  const [src, setSrc] = useState(fallback);
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | undefined;
+    setSrc(fallback);
+    const show = (blob: Blob) => {
+      if (!active) return;
+      objectUrl = URL.createObjectURL(blob);
+      setSrc(objectUrl);
+    };
+    if (pending) show(pending);
+    else if (projectId) void readProjectImage(projectId, imageId).then(show).catch(() => {});
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [imageId, projectId, pending, fallback]);
+  return src
+    ? <img src={src} alt="슬라이드 이미지" style={{ width: '100%', maxHeight: 130, objectFit: 'contain' }} onError={() => setSrc(undefined)} />
+    : <span className="t-caption">이미지를 다시 선택해 주세요.</span>;
 }

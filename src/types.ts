@@ -201,6 +201,15 @@ export interface Question {
 }
 
 export interface Posting {
+  source?: {
+    sourcePostingId: string;
+    sourceType: 'TEXT' | 'URL';
+    url?: string;
+    rawText: string;
+    analysis: Pick<Posting, 'company' | 'job' | 'skills' | 'questions'>;
+    evidence?: Record<string, unknown>;
+    warnings: string[];
+  };
   company: string | null;
   job: string | null;
   skills: string[];
@@ -230,6 +239,7 @@ export interface KeywordCoverage {
 }
 
 export interface CoverDraft extends Question {
+  generation?: { taskId: string; original: Record<string, unknown> };
   text: string;
   keywords: KeywordCoverage[];
   usedExperiences: string[];
@@ -239,6 +249,9 @@ export type SlideType = '표지' | '소개' | '프로젝트' | '성과' | '요�
 export type SlideLayout = '지표 강조' | '이미지 강조' | '텍스트 강조';
 
 export interface SlideItem {
+  generation?: { taskId: string; original: Record<string, unknown> };
+  replacement?: { taskId: string; original: Record<string, unknown> };
+  imageIds?: string[];
   sourceExperienceIds?: string[];
   metrics?: { label: string; value: number; unit: string }[];
   id: string;

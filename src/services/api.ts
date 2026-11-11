@@ -1,5 +1,5 @@
 import * as career from './career';
-import { createExperience } from './backend';
+import { backend, createExperience } from './backend';
 // =========================================================
 // API 레이어 — 분석 API 연결, 목업은 VITE_API_MOCK=true에서만 사용합니다.
 // A AI API와 B 인증·경험 DB API를 각각 호출합니다.
@@ -112,16 +112,31 @@ export async function saveExperience(payload: Omit<Experience, 'id'>): Promise<E
 /** POST /job-postings/analyze → GET /job-postings/{postingId}/analysis */
 export async function parsePosting({ url = '', text = '' }: PostingInput): Promise<Posting> {
   if (!demoMode) {
-    if (!text.trim()) throw new Error(url.trim() ? '현재 백엔드는 URL 수집을 지원하지 않아요. 공고 본문을 붙여넣어 주세요.' : '공고 내용을 입력해 주세요.');
+    let sourceUrl: string | undefined;
+    if (!text.trim() && url.trim()) {
+      const fetched = await backend<{ url: string; text: string }>('/job-postings/fetch', {
+        method: 'POST', body: JSON.stringify({ url: url.trim() }),
+      });
+      text = fetched.text;
+      sourceUrl = fetched.url;
+    }
+    if (!text.trim()) throw new Error('공고 내용을 입력해 주세요.');
     if (text.trim().length > 80_000) throw new Error('공고 본문은 최대 80,000자까지 입력해 주세요.');
     const job = await waitForJob(await request<Job>('/job-postings/analyze', {
       method: 'POST', headers: { ...jobHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
     }));
     if (!job.postingId) throw new Error('공고 결과 ID가 없어요.');
-    const response = await request<{ data: Posting; needsManualQuestions?: boolean; missingFields?: string[]; warnings?: unknown[] }>(`/job-postings/${encodeURIComponent(job.postingId)}/analysis`);
+    const response = await request<{ data: Posting; evidence?: Record<string, unknown>; needsManualQuestions?: boolean; missingFields?: string[]; warnings?: string[] }>(`/job-postings/${encodeURIComponent(job.postingId)}/analysis`);
     const result = response.data;
     if (!result || !Array.isArray(result.questions) || !Array.isArray(result.skills)) throw new Error('공고 결과 구조가 프론트 규격과 달라요. 상세 API 명세가 필요해요.');
-    return { ...result, needsManualQuestions: response.needsManualQuestions, missingFields: response.missingFields, warnings: (response.warnings ?? []).map(warningText) };
+    const warnings = response.warnings ?? [];
+    return {
+      ...result, needsManualQuestions: response.needsManualQuestions, missingFields: response.missingFields, warnings,
+      source: {
+        sourcePostingId: job.postingId, sourceType: sourceUrl ? 'URL' : 'TEXT', url: sourceUrl,
+        rawText: text, analysis: career.postingPayload(result), evidence: response.evidence, warnings,
+      },
+    };
   }
   await wait(900);
   if (!url.trim() && !text.trim()) throw new Error('공고 링크나 내용을 입력해 주세요.');

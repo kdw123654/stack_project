@@ -1,5 +1,7 @@
 # 프론트 API 연동 재점검
 
+> 2200574 기준 기록입니다. 이후 추가된 저장·내보내기·URL 수집 API의 연동 상태는 [연동 현황](INTEGRATION_GAPS.md)을 참고하세요.
+
 검토 기준: `STACK_BE` 커밋 `22005747d66c2cf2d11431c917bdcad3655c38db`.
 이번 확인에서 `git fetch origin STACK_BE`의 FETCH_HEAD와 origin/STACK_BE가 동일함을 확인했습니다.
 사용자가 첨부한 백엔드 README와 Backend A API 초안은 보관한 두 문서와 SHA-256이 동일합니다.

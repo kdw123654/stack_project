@@ -1,3 +1,4 @@
+import { storeCover, type ProjectRef } from '../services/generatedStorage';
 import { rewrite } from '../services/career';
 import { demoMode } from '../services/http';
 import { useState } from 'react';
@@ -10,7 +11,7 @@ import type { Experience, Posting, PostingInput as PostingInputValue, MatchedExp
 
 interface CoverLetterFlowProps {
   experiences: Experience[];
-  initial?: { posting: Posting; drafts: CoverDraft[]; picked: MatchedExperience[] };
+  initial?: { posting: Posting; drafts: CoverDraft[]; picked: MatchedExperience[]; project?: ProjectRef };
   onExit: () => void;
   onSaved?: (payload: { kind: 'cover'; posting: Posting; drafts: CoverDraft[] }) => void;
   toast: Toast;
@@ -26,6 +27,8 @@ const LABELS = ['공고 입력', '경험 선별', '초안 생성', '확인·수�
 const GEN_STEPS = ['작업 대기', 'AI 초안 생성', '결과 검증'];
 
 export default function CoverLetterFlow({ experiences, onExit, onSaved, toast, initial }: CoverLetterFlowProps) {
+  const [project, setProject] = useState(initial?.project);
+  const [saving, setSaving] = useState(false);
   const [rewriting, setRewriting] = useState(false);
   const [step, setStep] = useState<Step>(initial ? 4 : 1);
   const [posting, setPosting] = useState<Posting | null>(initial?.posting ?? null);
@@ -74,23 +77,47 @@ export default function CoverLetterFlow({ experiences, onExit, onSaved, toast, i
   };
 
   const rewriteAnswer = async (instructions = '') => {
-    if (!posting || rewriting) return;
+    if (!posting || rewriting || saving) return;
     if (demoMode) return toast('샘플 모드에서는 재생성을 지원하지 않아요.');
     const original = drafts[active];
     setRewriting(true);
     try {
       const next = await rewrite(posting, picked, original, instructions);
-      setDrafts(current => current.map(d => d.id === next.id ? next : d));
+      setDrafts(current => current.map(d => {
+        const draft = d.id === next.id ? next : d;
+        return draft.generation && next.generation
+          ? { ...draft, generation: { ...draft.generation, taskId: next.generation.taskId } }
+          : draft;
+      }));
       toast('새 초안을 반영했어요');
     } catch (e) { toast(errMsg(e)); }
     finally { setRewriting(false); }
   };
-  const save = () => {
-    if (!posting) return;
-    try { localStorage.setItem('stack.cover.' + (sessionStorage.getItem('stack.userId') || 'demo'), JSON.stringify({ posting, drafts, picked })); } catch { return toast('기기 저장 공간을 확인해 주세요.'); }
-    onSaved?.({ kind: 'cover', posting, drafts });
-    toast('이 기기에 자소서 초안을 저장했어요');
-    onExit();
+  const canSaveToServer = !demoMode && Boolean(posting?.source && drafts.length && drafts.every(d => d.generation));
+  const save = async () => {
+    if (!posting || saving || rewriting) return;
+    const storageKey = 'stack.cover.' + (sessionStorage.getItem('stack.userId') || 'demo');
+    const remember = (ref?: ProjectRef) => {
+      const checkpoint = ref && { id: ref.id, postingId: ref.postingId, updatedAt: ref.updatedAt };
+      setProject(checkpoint);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify({ posting, drafts, picked, project: checkpoint }));
+      } catch {
+        if (!canSaveToServer) throw new Error('기기 저장 공간을 확인해 주세요.');
+      }
+    };
+    setSaving(true);
+    try {
+      remember(project);
+      if (canSaveToServer) await storeCover(posting, drafts, project, remember);
+      onSaved?.({ kind: 'cover', posting, drafts });
+      toast(canSaveToServer ? '자소서 초안을 서버에 저장했어요' : '이 기기에 자소서 초안을 저장했어요');
+      onExit();
+    } catch (e) {
+      toast(errMsg(e));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const back: Record<Step, [string, () => void]> = {
@@ -105,9 +132,9 @@ export default function CoverLetterFlow({ experiences, onExit, onSaved, toast, i
     <div className="screen">
       <FlowHeader
         backLabel={backLabel}
-        onBack={onBack}
+        onBack={() => { if (!saving && !rewriting) onBack(); }}
         title="공고 맞춤 자소서"
-        right={step === 4 && <button className="btn btn--primary btn--sm" onClick={save}>저장</button>}
+        right={step === 4 && <button className="btn btn--primary btn--sm" disabled={saving || rewriting} onClick={save}>저장</button>}
       />
       <Stepper labels={LABELS} current={step} />
 
@@ -207,12 +234,12 @@ export default function CoverLetterFlow({ experiences, onExit, onSaved, toast, i
             draft={drafts[active]}
             editing={editing}
             setEditing={setEditing}
-            onChange={(text: string) => setDrafts(drafts.map((d, i) => (i === active ? { ...d, text } : d)))}
+            onChange={(text: string) => !saving && !rewriting && setDrafts(drafts.map((d, i) => (i === active ? { ...d, text } : d)))}
             onRewrite={() => { void rewriteAnswer(); }}
             onPolish={() => { void rewriteAnswer('기존 근거를 유지하면서 문장을 자연스럽게 다듬어 주세요.'); }}
             onCopy={() => { navigator.clipboard?.writeText(drafts[active].text); toast('복사했어요'); }}
           />
-          <button className="btn btn--primary btn--block" onClick={save}>이 기기에 자소서 초안 저장</button>
+          <button className="btn btn--primary btn--block" disabled={saving || rewriting} onClick={save}>{saving ? '저장 중' : canSaveToServer ? '자소서 초안 서버 저장' : '이 기기에 자소서 초안 저장'}</button>
           <button className="link" style={{ alignSelf: 'center', fontSize: 13 }} onClick={() => toast('코칭 신청 화면으로 이동')}>취업지원처 무료 코칭 받기 →</button>
         </>
       )}

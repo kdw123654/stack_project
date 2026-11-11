@@ -75,7 +75,7 @@ export default function MyExperience({ list, setList, toast }: MyExperienceProps
         </div>
       </section>
 
-      <section className="card stack-8"><h2 className="h-sub">이 기기에 저장한 최근 초안</h2><p className="t-caption">서버에 저장되지 않습니다. 같은 기기와 계정에서 다시 열 수 있습니다.</p>
+      <section className="card stack-8"><h2 className="h-sub">이 기기에 저장한 최근 초안</h2><p className="t-caption">최근 작업을 같은 기기와 계정에서 다시 열 수 있습니다.</p>
         <button className="btn" onClick={() => {
           try { const data = JSON.parse(localStorage.getItem('stack.cover.' + (sessionStorage.getItem('stack.userId') || 'demo')) || 'null'); if (!data?.drafts?.length) return toast('저장한 자소서 초안이 없어요.'); setSavedCover(data); setBuilder('cover'); } catch { toast('초안을 열 수 없어요.'); }
         }}>저장한 자소서 열기</button>

@@ -9,10 +9,11 @@ export const postingPayload = (posting: Posting) => ({
 export const experiencePayload = (e: Experience) => ({ id: e.id, title: e.title, summary: e.summary,
   role: e.role ?? '', period: e.period, achievements: e.achievements ?? [], skills: e.skills ?? [], assets: e.assets ?? [] });
 
-async function task<T>(path: string, payload: unknown, onStep: (step: number) => void = () => {}): Promise<T> {
+async function task<T>(path: string, payload: unknown, onStep: (step: number) => void = () => {}) {
   const job = await waitForJob(await request<Job>(path, { method: 'POST', headers: { ...jobHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }), onStep);
   if (!job.taskId) throw new Error('생성 작업 ID가 없어요.');
-  return (await request<{ data: T }>(`/ai-results/${encodeURIComponent(job.taskId)}`)).data;
+  const result = await request<{ data: T }>(`/ai-results/${encodeURIComponent(job.taskId)}`);
+  return { data: result.data, taskId: job.taskId };
 }
 
 export async function recommend(posting: Posting, kind: 'cover' | 'slides', list: Experience[]): Promise<MatchedExperience[]> {
@@ -35,11 +36,15 @@ const draftPayload = (posting: Posting, picked: MatchedExperience[]) => ({
   })),
 });
 type Answer = Omit<CoverDraft, 'id' | 'no' | 'title'> & { questionId: string };
-function answers(posting: Posting, picked: MatchedExperience[], result: { answers: Answer[] }): CoverDraft[] {
-  return result.answers.map(answer => {
+function answers(posting: Posting, picked: MatchedExperience[], result: { data: { answers: Answer[] }; taskId: string }): CoverDraft[] {
+  return result.data.answers.map(answer => {
     const question = posting.questions.find(q => q.id === answer.questionId);
     if (!question) throw new Error('알 수 없는 자소서 문항입니다.');
-    return { ...question, ...answer, usedExperiences: answer.usedExperiences.map(id => picked.find(e => e.id === id)?.title ?? id) };
+    return {
+      ...question, ...answer,
+      generation: { taskId: result.taskId, original: { ...answer } },
+      usedExperiences: answer.usedExperiences.map(id => picked.find(e => e.id === id)?.title ?? id),
+    };
   });
 }
 export async function cover(posting: Posting, picked: MatchedExperience[], onStep: (step: number) => void) {
@@ -53,15 +58,37 @@ export async function rewrite(posting: Posting, picked: MatchedExperience[], dra
 }
 
 export async function outline(posting: Posting, picked: MatchedExperience[], size: number): Promise<SlideItem[]> {
-  const data = await task<{ slides: SlideItem[] }>('/portfolios/outline', { posting: postingPayload(posting), experiences: picked.map(experiencePayload), size });
+  const { data } = await task<{ slides: SlideItem[] }>('/portfolios/outline', { posting: postingPayload(posting), experiences: picked.map(experiencePayload), size });
   return data.slides.map(slide => ({ ...slide, desc: '', kind: 'text' }));
 }
 export async function slides(outline: SlideItem[], posting: Posting, picked: MatchedExperience[]): Promise<SlideItem[]> {
   if (![6, 10, 14].includes(outline.length)) throw new Error('슬라이드는 6장, 10장, 14장으로 구성해 주세요.');
   if (outline.some(s => !s.sourceExperienceIds?.length)) throw new Error('각 슬라이드에 근거 경험이 필요해요. 구성을 다시 생성해 주세요.');
-  const data = await task<{ slides: (SlideItem & { corePhrases: string[] })[] }>('/portfolios/generate', {
+  const { data, taskId } = await task<{ slides: GeneratedSlide[] }>('/portfolios/generate', {
     posting: postingPayload(posting), experiences: picked.map(experiencePayload), size: outline.length,
     outline: outline.map(s => ({ id: s.id, type: s.type, title: s.title, sourceExperienceIds: s.sourceExperienceIds })),
   });
-  return data.slides.map(slide => ({ ...slide, desc: slide.corePhrases.join('\n'), kind: 'text' }));
+  return data.slides.map(slide => ({
+    ...slide, desc: slide.corePhrases.join('\n'), kind: 'text',
+    generation: { taskId, original: { ...slide } },
+  }));
+}
+
+type GeneratedSlide = Omit<SlideItem, 'desc' | 'kind'> & { corePhrases: string[] };
+
+export async function rewriteSlide(posting: Posting, picked: MatchedExperience[], current: SlideItem): Promise<SlideItem> {
+  const { id, type, title, sourceExperienceIds } = current;
+  const { data, taskId } = await task<{ slide: GeneratedSlide }>(`/portfolios/slides/${encodeURIComponent(id)}/regenerate`, {
+    posting: postingPayload(posting), experiences: picked.map(experiencePayload),
+    slide: { id, type, title, sourceExperienceIds },
+    previousSlide: {
+      ...(current.replacement ?? current.generation)?.original, id, title,
+      corePhrases: current.desc.split('\n'), imageIds: current.imageIds ?? [], layout: current.layout,
+    },
+  });
+  if (data.slide.id !== id) throw new Error('재생성 결과의 슬라이드 ID가 다릅니다.');
+  return {
+    ...data.slide, desc: data.slide.corePhrases.join('\n'), kind: 'text',
+    generation: current.generation, replacement: { taskId, original: { ...data.slide } },
+  };
 }

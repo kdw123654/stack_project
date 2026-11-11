@@ -136,7 +136,6 @@ export function PostingInput(props: PostingInputProps) {
         value={tab}
         onChange={setTab}
       />
-      {tab === 'link' && <p className="t-caption">현재는 링크 수집을 지원하지 않아요. 공고 본문을 텍스트로 붙여넣어 주세요.</p>}
       {tab === 'link' ? (
         <div className="input-icon">
           <Icon name="link" size={18} />
@@ -146,7 +145,7 @@ export function PostingInput(props: PostingInputProps) {
             placeholder="채용공고 링크 붙여넣기"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && url.trim() && onParse({ url })}
+            onKeyDown={(e) => e.key === 'Enter' && !loading && !posting && url.trim() && onParse({ url })}
           />
         </div>
       ) : (

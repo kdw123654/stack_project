@@ -17,6 +17,7 @@ const backendUrl = moduleUrl('src/services/backend.ts');
 const careerUrl = moduleUrl('src/services/career.ts', { './http': httpUrl });
 const backend = await import(backendUrl);
 const career = await import(careerUrl);
+const storage = await import(moduleUrl('src/services/generatedStorage.ts', { './http': httpUrl, './backend': backendUrl, './career': careerUrl }));
 const api = await import(moduleUrl('src/services/api.ts', { './http': httpUrl, './backend': backendUrl, './career': careerUrl, '../data/mock': moduleUrl('src/data/mock.ts') }));
 const memory = new Map();
 globalThis.sessionStorage = { getItem: key => memory.get(key) ?? null, setItem: (key, value) => memory.set(key, value), removeItem: key => memory.delete(key) };
@@ -91,7 +92,7 @@ test('portfolio resolves image paths and retains unknown contribution', async ()
 
 test('input errors do not create backend jobs', async () => {
   respond([]);
-  await assert.rejects(api.parsePosting({ url: 'https://example.com' }), /본문/);
+  await assert.rejects(api.parsePosting({}), /공고 내용/);
   await assert.rejects(api.parsePosting({ text: 'x'.repeat(80001) }), /80,000/);
   await assert.rejects(api.analyzeFiles([{ name: 'recent.pdf', size: 0 }], 'resume'), /원본/);
 });
@@ -218,4 +219,80 @@ test('regeneration sends the current user text and only returns the requested re
   assert.equal(result.id, 'q1');
   assert.equal(result.text, '새 초안');
   assert.equal(original.text, '사용자가 수정한 원본');
+});
+
+test('URL posting fetches text from authenticated B and submits only text to A', async () => {
+  backend.setSession({ accessToken: 'token', refreshToken: 'refresh' });
+  const url = 'https://example.com/job';
+  const calls = respond([
+    { success: true, data: { sourceType: 'URL', url, text: '공고 원문' } },
+    { jobId: 'job', postingId: 'a-posting', status: 'SUCCEEDED' },
+    { data: career.postingPayload(posting), evidence: { source: '공고 원문' }, warnings: [] },
+  ]);
+  const result = await api.parsePosting({ url });
+  assert.equal(calls[0].url, '/backend-api/api/v1/job-postings/fetch');
+  assert.equal(calls[0].options.headers.get('Authorization'), 'Bearer token');
+  assert.deepEqual(JSON.parse(calls[1].options.body), { text: '공고 원문' });
+  assert.equal(result.source.sourcePostingId, 'a-posting');
+  assert.equal(result.source.url, url);
+});
+
+const originalPosting = career.postingPayload(posting);
+const savePosting = { ...posting, source: { sourcePostingId: 'a-posting', sourceType: 'TEXT', rawText: '원문', analysis: originalPosting, warnings: [] } };
+const savedPosting = { postingId: 'b-posting', questions: [{ id: 'q1', order: 1, text: '역할', charLimit: null, countUnit: 'unknown', includesSpaces: null, needsCheck: true }] };
+const ok = data => ({ success: true, data });
+
+test('cover saves original IDs before applying edits and reuses a known project after partial failure', async () => {
+  const original = { questionId: 'q1', text: '원본', usedExperiences: ['uuid'], sentences: [], keywords: [] };
+  const drafts = [{ ...posting.questions[0], text: '수정', usedExperiences: ['표시 이름'], generation: { taskId: 'task', original } }];
+  const project = { id: 'cover', postingId: 'b-posting', updatedAt: '2026-11-11T00:00:00Z' };
+  let checkpoint;
+  respond([ok(savedPosting), ok(project), { httpStatus: 500, error: { message: '저장 실패' } }]);
+  await assert.rejects(storage.storeCover(savePosting, drafts, undefined, ref => { checkpoint = ref; }), /저장 실패/);
+  assert.equal(checkpoint.id, 'cover');
+
+  const calls = respond([ok(savedPosting), ok({ ...project, answers: [{ questionId: 'q1', content: '원본' }] }),
+    ok({ ...project, answers: [{ questionId: 'q1', content: '수정' }] }), ok(project)]);
+  await storage.storeCover(savePosting, drafts, checkpoint, () => {});
+  assert.equal(calls[1].url, '/backend-api/api/v1/cover-letters/cover/answers');
+  assert.deepEqual(JSON.parse(calls[1].options.body).answers, [original]);
+  assert.deepEqual(JSON.parse(calls[2].options.body), { content: '수정' });
+  assert.equal(calls[3].url, '/backend-api/api/v1/cover-letters/cover/save');
+});
+
+test('single slide regeneration preserves the original batch and uses the selected slide ID', async () => {
+  const base = { id: 's2', type: '프로젝트', title: '원본', sourceExperienceIds: ['e1'], corePhrases: ['근거'], metrics: [], imageIds: [] };
+  const generation = { taskId: 'base', original: base };
+  const calls = respond([{ jobId: 'j', taskId: 'next', status: 'SUCCEEDED' }, { data: { slide: { ...base, title: '새 제목' } } }]);
+  const next = await career.rewriteSlide(posting, [experience], { ...base, generation, desc: '사용자 수정', kind: 'text' });
+  assert.equal(calls[0].url, '/ai-api/portfolios/slides/s2/regenerate');
+  assert.deepEqual(JSON.parse(calls[0].options.body).previousSlide.corePhrases, ['사용자 수정']);
+  assert.equal(next.generation, generation);
+  assert.equal(next.replacement.taskId, 'next');
+});
+
+test('portfolio imports base and replacement, uploads selected image, then exports PPTX', async () => {
+  const originals = Array.from({ length: 6 }, (_, i) => ({
+    id: 's' + i, type: '프로젝트', title: '원본', sourceExperienceIds: ['uuid'], corePhrases: ['근거'], metrics: [],
+    chartData: [{ type: 'bar', unit: '%', labels: ['결과'], values: [30] }], imageIds: [], layout: '텍스트 강조',
+  }));
+  const replacement = { ...originals[0], title: '새 제목' };
+  const slides = originals.map((item, i) => ({
+    ...item, kind: 'text', desc: '근거', generation: { taskId: 'base', original: item },
+    ...(i === 0 && { title: replacement.title, imageIds: ['chosen'], replacement: { taskId: 'regen', original: replacement } }),
+  }));
+  const project = { id: 'pf', postingId: 'b-posting', length: 'SHORT_6', updatedAt: '2026-11-11T00:00:00Z' };
+  const stored = originals.map((item, i) => ({ ...item, slideNo: i + 1, body: '근거' }));
+  const regenerated = [{ ...stored[0], title: '새 제목' }, ...stored.slice(1)];
+  const calls = respond([ok(savedPosting), ok(project), ok({ ...project, slides: stored }),
+    ok({ ...project, slides: regenerated }), ok({ ...project, slides: [{ ...regenerated[0], imageIds: ['chosen'] }, ...regenerated.slice(1)] }),
+    ok({ imageId: 'chosen' }), ok(project), ok({ downloadUrl: 'https://storage.example/export.pptx' })]);
+  await storage.storePortfolio(savePosting, slides, 'PPTX', undefined, () => {}, [], new Map([['chosen', new File(['png'], 'chosen.png')]]));
+  const download = await storage.exportPortfolio('pf', 'PPTX');
+  assert.deepEqual(JSON.parse(calls[2].options.body).slides, originals);
+  assert.equal(calls[3].url, '/backend-api/api/v1/portfolios/pf/slides/1/generated');
+  assert.deepEqual(JSON.parse(calls[4].options.body).imageIds, ['chosen']);
+  assert.equal(calls[5].options.body.get('imageId'), 'chosen');
+  assert.equal(calls[7].url, '/backend-api/api/v1/portfolios/pf/export');
+  assert.equal(download.downloadUrl, 'https://storage.example/export.pptx');
 });

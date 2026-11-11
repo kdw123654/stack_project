@@ -17,11 +17,11 @@ dist/
 *.log
 
 # A (AI 서버) 작업 폴더
-uploads/
-output/
+/uploads/
+/output/
 tests/*
 !tests/api.test.mjs
-data/
+/data/
 AGENTS.md
 
 # 기타

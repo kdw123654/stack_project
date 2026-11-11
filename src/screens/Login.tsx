@@ -36,6 +36,6 @@ export default function Login() {
       {error && <p className="notice notice--point" role="alert">{error}</p>}
       <button className="btn btn--primary" disabled={busy}>{busy ? '처리 중' : step === 'login' ? '로그인' : step === 'email' ? '인증 코드 받기' : step === 'code' ? '인증하기' : '등록하기'}</button>
     </form>
-    {step !== 'password' && <button className="link" disabled={busy} onClick={() => { setStep(step === 'login' ? 'email' : 'login'); setPassword(''); setError(''); }}>{step === 'login' ? '학교 이메일 인증 / 가입하기' : '학번 로그인으로 돌아가기'}</button>}
+    {step !== 'password' && <button className="link" disabled={busy} onClick={() => { setStep(step === 'login' ? 'email' : 'login'); setPassword(''); setError(''); }}>{step === 'login' ? '학교 이메일 인증으로 로그인' : '학번 로그인으로 돌아가기'}</button>}
   </div>;
 }

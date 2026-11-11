@@ -54,9 +54,21 @@ export async function registerPassword(studentId: string, password: string) {
   await backend('/auth/password', { method: 'POST', body: JSON.stringify({ studentId, password }) });
   setSession(getSession());
 }
-type User = { department: string | null; grade: number | null; desiredJob: string | null; targetCompany: string | null };
-const profileFrom = (user: User): Profile => ({ department: user.department ?? '미등록', grade: user.grade ? `${user.grade}학년` : '미등록', job: user.desiredJob ?? '', targetCompany: user.targetCompany ?? '' });
+type User = { studentId: string | null; department: string | null; grade: number | null; desiredJob: string | null; targetCompany: string | null };const profileFrom = (user: User): Profile => ({ department: user.department ?? '미등록', grade: user.grade ? `${user.grade}학년` : '미등록', job: user.desiredJob ?? '', targetCompany: user.targetCompany ?? '' });
 export async function loadProfile() { return profileFrom(await backend<User>('/users/me')); }
+export function estimateGrade(studentId: string | null, today = new Date()): number | null {
+  if (!studentId || !/^\d{8}$/.test(studentId)) return null;
+  const entryYear = 2000 + Number(studentId.slice(0, 2));
+  const schoolYear = today.getMonth() < 2 ? today.getFullYear() - 1 : today.getFullYear();
+  return Math.min(Math.max(schoolYear - entryYear + 1, 1), 4);
+}
+export async function loadMe() {
+  const user = await backend<User>('/users/me');
+  return { profile: profileFrom(user), needsBasicInfo: !user.department || !user.grade, suggestedGrade: estimateGrade(user.studentId) };
+}
+export async function saveBasicInfo(department: string, grade: number) {
+  return profileFrom(await backend<User>('/users/me', { method: 'PATCH', body: JSON.stringify({ department, grade }) }));
+}
 export async function saveTarget(profile: Profile) {
   return profileFrom(await backend<User>('/users/me/target', { method: 'PATCH', body: JSON.stringify({ desiredJob: profile.job, targetCompany: profile.targetCompany || null }) }));
 }

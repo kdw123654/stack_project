@@ -1,7 +1,8 @@
 import { LiveExplore, LiveMindmap, LiveSettings } from './screens/LiveData';
 import Login from './screens/Login';
 import { demoMode } from './services/http';
-import { getSession, loadProfile, listExperiences, saveTarget, logout } from './services/backend';
+import { getSession, loadMe, listExperiences, saveTarget, logout } from './services/backend';
+import BasicInfo from './screens/BasicInfo';
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
 import Icon from './components/Icon';
 import { AppHeader, TabBar, Sheet, Toast } from './components/Layout';
@@ -30,7 +31,8 @@ export default function App() {
   const [toastMsg, setToastMsg] = useState('');
   const [booting, setBooting] = useState(true); // CM-01 스플래시
   const [hideHeader, setHideHeader] = useState(false);
-
+  const [needsBasicInfo, setNeedsBasicInfo] = useState(false);
+  const [suggestedGrade, setSuggestedGrade] = useState<number | null>(null);
   const toast = useCallback<ToastFn>((msg) => {
     setToastMsg(msg);
     window.setTimeout(() => setToastMsg(''), 1800);
@@ -45,8 +47,8 @@ export default function App() {
     if (demoMode || !authenticated) return;
     let active = true;
     setLoading(true); setLoadError(''); setExperiences([]);
-    Promise.all([loadProfile(), listExperiences()]).then(([p, e]) => {
-      if (active) { setProfile(p); setExperiences(e); }
+    Promise.all([loadMe(), listExperiences()]).then(([me, e]) => {
+      if (active) { setProfile(me.profile); setNeedsBasicInfo(me.needsBasicInfo); setSuggestedGrade(me.suggestedGrade); setExperiences(e); }
     }).catch(e => { if (active) setLoadError(e instanceof Error ? e.message : '정보를 불러오지 못했어요.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -57,7 +59,7 @@ export default function App() {
   };
   if (!demoMode && !authenticated) return <Login />;
   if (!demoMode && (loading || loadError)) return <div className="screen"><p role="status">{loadError || '내 정보를 불러오는 중'}</p>{loadError && <button className="btn" onClick={() => setReload(n => n + 1)}>다시 시도</button>}<button className="link" onClick={() => void logout().catch(() => {})}>로그아웃</button></div>;
-
+  if (!demoMode && needsBasicInfo) return <BasicInfo suggestedGrade={suggestedGrade} onSaved={p => { setProfile(p); setNeedsBasicInfo(false); }} />;
   const screens: Record<TabId, ReactElement> = {
     home: (
       <Home
@@ -143,8 +145,8 @@ function ProfileModal({ profile, onClose, onSave }: ProfileModalProps) {
         <LockedField label="소속 학과" value={profile.department} />
         <LockedField label="학년" value={profile.grade} />
         <p className="locked-fields__note">
-          <Icon name="info" size={14} /> 수원대학교 포털 연동 정보로 자동 설정된 항목입니다.
-        </p>
+          <Icon name="info" size={14} /> 가입할 때 등록한 정보예요. 학과를 바꾸려면 문의해 주세요.
+          </p>
       </div>
 
       <div>

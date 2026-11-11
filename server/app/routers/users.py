@@ -1,10 +1,8 @@
-"""내 정보 · 목표 직무 · 동의 · 약관 · 탈퇴 (US-01~05)"""
 from typing import Optional
-
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic.alias_generators import to_camel
-
+from pydantic import ConfigDict, Field
 from app.common import ApiError, CamelModel, camel_keys, now_iso, ok
 from app.config import ALLOWED_EMAIL_DOMAIN
 from app.db import db
@@ -31,6 +29,7 @@ class TargetUpdate(CamelModel):
 
 
 class ProfileUpdate(CamelModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
     name: Optional[str] = None
     department: Optional[str] = None
     grade: Optional[int] = None
@@ -72,6 +71,10 @@ def update_target(body: TargetUpdate, user: dict = Depends(get_current_user)):
 @router.patch("/users/me")
 def update_me(body: ProfileUpdate, user: dict = Depends(get_current_user)):
     changes = body.model_dump(exclude_none=True)
+    if 'department' in changes:
+        current = get_profile(user['id'])['department']
+        if current and current != changes['department']:
+            raise ApiError(409, 'DEPARTMENT_LOCKED', '학과는 처음 한 번만 등록할 수 있습니다.')
     if changes:
         db.table("profiles").update({**changes, "updated_at": now_iso()}).eq("id", user["id"]).execute()
     return ok(get_profile(user["id"]))

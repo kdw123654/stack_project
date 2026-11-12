@@ -1,10 +1,25 @@
-import { demoMode } from '../services/http';
-import { useState } from 'react';
-import Icon, { LinkedInIcon, GitHubIcon } from '../components/Icon';
+import { useEffect, useState } from 'react';
+import Icon, { GitHubIcon } from '../components/Icon';
 import { SegmentTabs, SubHeader, Sheet } from '../components/Layout';
-import { notices, schoolStats, seniors } from '../data/mock';
+import { askSenior, loadNotices, loadSchoolStats, loadSenior, loadSeniors } from '../services/explore';
 import type { Profile, Senior, TabId, Toast } from '../types';
 import { useHideHeader } from '../components/HeaderContext';
+
+function useLoad<T>(load: () => Promise<T>) {
+  const [data, setData] = useState<T | null>(null);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setError('');
+    load().then(v => { if (active) setData(v); }).catch(e => { if (active) setError(e instanceof Error ? e.message : '불러오지 못했어요.'); });
+    return () => { active = false; };
+  }, [retry]);
+  const status = error
+    ? <div className="notice notice--point" role="alert">{error} <button className="link" onClick={() => setRetry(n => n + 1)}>다시 시도</button></div>
+    : data === null ? <p className="t-caption" role="status">불러오는 중</p> : null;
+  return { data, status };
+}
 
 type ExploreTab = 'notice' | 'stats' | 'senior';
 const TABS: { id: ExploreTab; label: string }[] = [
@@ -25,11 +40,10 @@ export default function Explore({ profile, goTab, toast }: ExploreProps) {
   const [senior, setSenior] = useState<Senior | null>(null);
   useHideHeader(Boolean(senior));
 
-  if (senior) return <SeniorDetail s={senior} onBack={() => setSenior(null)} toast={toast} />;
+  if (senior) return <SeniorDetail summary={senior} onBack={() => setSenior(null)} toast={toast} />;
 
   return (
     <div className="screen">
-      {!demoMode && <p className="notice notice--point" role="status">이 화면은 아직 샘플 데이터입니다. 서버 연동 전입니다.</p>}
       <div className="row row--between">
         <h1 className="h-title">교내외 탐색</h1>
         <span className="badge badge--blue">{tab === 'stats' ? '수원대학교 전체' : `${profile.department} 기준`}</span>
@@ -44,16 +58,21 @@ export default function Explore({ profile, goTab, toast }: ExploreProps) {
 
 /* DS-01/02 */
 function NoticeList({ goTab }: { goTab: (tab: TabId) => void }) {
+  const { data: notices, status } = useLoad(loadNotices);
+  if (!notices) return status;
   return (
     <div className="stack-8">
+      {status}
+      {notices.length === 0 && <p className="t-caption">지금 모집 중인 공고가 없어요.</p>}
       {notices.map((n) => (
         <article key={n.id} className="card stack-8">
           <div className="row row--between">
             <span className="badge badge--blue">{n.type}</span>
-            <span className={`badge ${n.dday <= 7 ? 'badge--point' : 'badge--gray'}`}>D-{n.dday} 마감</span>
+            {n.dday !== null && <span className={`badge ${n.dday <= 7 ? 'badge--point' : 'badge--gray'}`}>{n.dday === 0 ? '오늘 마감' : `D-${n.dday} 마감`}</span>}
           </div>
           <div className="t-strong" style={{ fontSize: 15 }}>{n.title}</div>
           <div className="t-caption">{n.desc}</div>
+          {n.url && /^https?:\/\//i.test(n.url) && <a className="link" href={n.url} target="_blank" rel="noreferrer">원문 보기 <Icon name="external" size={12} /></a>}
           <button className="btn btn--soft btn--sm btn--block" onClick={() => goTab('experience')}>
             이 공고로 맞춤 서류 만들기 <Icon name="chevronR" size={14} />
           </button>
@@ -65,7 +84,9 @@ function NoticeList({ goTab }: { goTab: (tab: TabId) => void }) {
 
 /* DS-03 학교 취업 통계: 수원대학교 전체 단위 공식 자료만. 학과별 통계·비교는 제공하지 않음 */
 function SchoolStatsView() {
-  const max = Math.max(...schoolStats.byJob.map((r) => r.value));
+  const { data: schoolStats, status } = useLoad(loadSchoolStats);
+  if (!schoolStats) return status;
+  const max = Math.max(1, ...schoolStats.byJob.map((r) => r.value));
   return (
     <>
       <section className="card stack-12">
@@ -120,8 +141,10 @@ function SchoolStatsView() {
 
 /* DS-04/05 선배 카드: 현재 근무 기업·직무가 가장 먼저 */
 function SeniorList({ onOpen }: { onOpen: (s: Senior) => void }) {
-  const industries = ['전체', ...new Set(seniors.map((s) => s.industry))];
+  const { data: seniors, status } = useLoad(loadSeniors);
   const [ind, setInd] = useState('전체');
+  if (!seniors) return status;
+  const industries = ['전체', ...new Set(seniors.map((s) => s.industry))];
   const list = ind === '전체' ? seniors : seniors.filter((s) => s.industry === ind);
   return (
     <div className="stack-8">
@@ -145,7 +168,7 @@ function SeniorList({ onOpen }: { onOpen: (s: Senior) => void }) {
 }
 
 function SeniorCard({ s, onOpen }: { s: Senior; onOpen: () => void }) {
-  const hasLink = s.links.linkedin || s.links.github;
+  const hasLink = Boolean(s.links.github);
   return (
     <button className="card card--click stack-12" onClick={onOpen}>
       <div className="row" style={{ alignItems: 'flex-start' }}>
@@ -159,7 +182,6 @@ function SeniorCard({ s, onOpen }: { s: Senior; onOpen: () => void }) {
           <div className="t-caption">{s.dept} · {s.classOf}</div>
         </div>
         <div className="row" style={{ gap: 4 }}>
-          {s.links.linkedin && <LinkedInIcon size={18} />}
           {s.links.github && <GitHubIcon size={18} />}
           {!hasLink && <span className="t-caption" style={{ fontSize: 10 }}>프로필 미등록</span>}
         </div>
@@ -177,9 +199,18 @@ function SeniorCard({ s, onOpen }: { s: Senior; onOpen: () => void }) {
 }
 
 /* DS-05/06 선배 상세 + 외부 프로필 */
-function SeniorDetail({ s, onBack, toast }: { s: Senior; onBack: () => void; toast: Toast }) {
+function SeniorDetail({ summary, onBack, toast }: { summary: Senior; onBack: () => void; toast: Toast }) {
+  const { data: detail } = useLoad(() => loadSenior(summary.id));
+  const s = detail ?? summary;
   const [ask, setAsk] = useState(false);
   const [q, setQ] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function submit() {
+    setBusy(true);
+    try { await askSenior(s.id, q.trim()); setAsk(false); setQ(''); toast('질문을 등록했어요'); }
+    catch (e) { toast(e instanceof Error ? e.message : '질문을 등록하지 못했어요.'); }
+    finally { setBusy(false); }
+  }
   return (
     <div className="screen">
       <SubHeader backLabel="탐색" onBack={onBack} title="선배 커리어 상세" right={<span style={{ width: 52 }} />} />
@@ -198,17 +229,12 @@ function SeniorDetail({ s, onBack, toast }: { s: Senior; onBack: () => void; toa
         </div>
         <div className="t-caption">{s.name} 선배 · {s.dept} · {s.classOf}</div>
 
-        {/* 외부 프로필: 없으면 비활성(점선) 표시 */}
-        <div className="grid-2">
-          {s.links.linkedin ? (
-            <a className="ext-link" href={s.links.linkedin} target="_blank" rel="noreferrer"><LinkedInIcon />LinkedIn <Icon name="external" size={14} /></a>
-          ) : (
-            <span className="ext-link is-empty"><LinkedInIcon />미등록</span>
-          )}
+        {/* 외부 프로필(GitHub): 없으면 비활성(점선) 표시. LinkedIn은 표시하지 않음 */}
+        <div className="stack-8">
           {s.links.github ? (
-            <a className="ext-link" href={s.links.github} target="_blank" rel="noreferrer"><GitHubIcon />GitHub <Icon name="external" size={14} /></a>
+            <a className="ext-link" style={{ justifyContent: 'center' }} href={s.links.github} target="_blank" rel="noreferrer"><GitHubIcon />GitHub <Icon name="external" size={14} /></a>
           ) : (
-            <span className="ext-link is-empty"><GitHubIcon />미등록</span>
+            <span className="ext-link is-empty" style={{ justifyContent: 'center' }}><GitHubIcon />GitHub 미등록</span>
           )}
         </div>
       </section>
@@ -239,7 +265,7 @@ function SeniorDetail({ s, onBack, toast }: { s: Senior; onBack: () => void; toa
           <h2 className="h-title">{s.company} {s.role} 선배에게 질문</h2>
           <textarea className="input" placeholder="예) 3학년 때 인턴 지원은 어떻게 준비하셨나요?" value={q} onChange={(e) => setQ(e.target.value)} maxLength={500} />
           <p className="t-caption">질문은 취업지원처 선배 Q&A로 전달되고, 답변이 오면 알려드려요.</p>
-          <button className="btn btn--primary btn--block" disabled={!q.trim()} onClick={() => { setAsk(false); setQ(''); toast('질문을 등록했어요'); }}>질문 등록</button>
+          <button className="btn btn--primary btn--block" disabled={!q.trim() || busy} onClick={() => void submit()}>{busy ? '등록 중' : '질문 등록'}</button>
         </Sheet>
       )}
     </div>

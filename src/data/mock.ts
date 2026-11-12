@@ -188,7 +188,7 @@ export const seniors: Senior[] = [
     classOf: '2023년 졸업',
     verified: true,
     specs: ['ADsP', 'IT 스타트업 인턴 6개월', '데이터톤 대상', 'TOEIC 870'],
-    links: { linkedin: 'https://www.linkedin.com/', github: '' },
+    links: { github: '' },
     timeline: [
       { when: '1–2학년', what: '교내 비교과 프로그램 · 경영 동아리 활동' },
       { when: '3학년', what: '수원대 데이터톤 참가 및 대상 수상' },
@@ -208,7 +208,7 @@ export const seniors: Senior[] = [
     classOf: '2024년 졸업',
     verified: true,
     specs: ['정보처리기사', '오픈소스 기여', '부트캠프 수료'],
-    links: { linkedin: 'https://www.linkedin.com/', github: 'https://github.com/' },
+    links: { github: 'https://github.com/' },
     timeline: [
       { when: '1–2학년', what: '전공 스터디 · 웹 프로젝트 3건' },
       { when: '3학년', what: '프론트엔드 부트캠프 수료' },
@@ -228,7 +228,7 @@ export const seniors: Senior[] = [
     classOf: '2022년 졸업',
     verified: false,
     specs: ['구글 애널리틱스 자격', '대외활동 4회', '마케팅 공모전 수상'],
-    links: { linkedin: '', github: '' },
+    links: { github: '' },
     timeline: [
       { when: '1–2학년', what: '마케팅 학회 활동' },
       { when: '3학년', what: '브랜드 서포터즈 2회 · 공모전 수상' },

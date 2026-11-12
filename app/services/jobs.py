@@ -216,7 +216,7 @@ class JobManager:
     def _enqueue(self, kind: str, fingerprint: str, idempotency_key: str | None,
                  worker: Callable, *args) -> JobView:
         if not self.llm.configured:
-            raise AppError("LLM_NOT_CONFIGURED", ".env에 OPENAI_API_KEY를 설정해 주세요.", 503)
+            raise AppError("LLM_NOT_CONFIGURED", ".env에 AI API 키(OPENAI_API_KEY 또는 GEMINI_API_KEY)를 설정해 주세요.", 503)
         with self._lock:
             self._purge()
             if idempotency_key and idempotency_key in self._keys:

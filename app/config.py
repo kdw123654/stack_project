@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -5,8 +7,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # 어떤 AI를 쓸지: openai(유료) 또는 gemini(무료 등급 가능)
+    llm_provider: Literal["openai", "gemini"] = "openai"
     openai_api_key: SecretStr = SecretStr("")
     openai_model: str = "gpt-4.1-mini"
+    gemini_api_key: SecretStr = SecretStr("")
+    gemini_model: str = "gemini-3.1-flash-lite"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
     llm_timeout_seconds: float = Field(default=45, gt=0, le=120)
     llm_max_retries: int = Field(default=2, ge=0, le=3)
     llm_max_output_tokens: int = Field(default=8000, ge=500, le=32000)

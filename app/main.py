@@ -14,12 +14,18 @@ from app.config import Settings
 from app.errors import AppError
 from app.services.jobs import JobManager
 from app.services.llm import LLM, OpenAILLM
+from app.services.gemini_llm import GeminiLLM
 
 def create_app(settings: Settings | None = None, llm: LLM | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         config = settings if settings is not None else Settings()
-        provider = llm if llm is not None else OpenAILLM(config)
+        if llm is not None:
+            provider = llm
+        elif config.llm_provider == "gemini":
+            provider = GeminiLLM(config)
+        else:
+            provider = OpenAILLM(config)
         if not logging.getLogger("stack").handlers:
             logging.getLogger("stack").addHandler(logging.StreamHandler())
             logging.getLogger("stack").propagate = False

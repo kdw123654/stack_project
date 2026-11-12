@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { backend, setSession } from '../services/backend';
+import { backend, logout, setSession } from '../services/backend';
+import Icon from '../components/Icon';
 import { request } from '../services/http';
 import { experiencePayload } from '../services/career';
 import type { Experience, Profile, Toast } from '../types';
@@ -82,15 +83,28 @@ export function LiveSettings({ onClose, onEditProfile, toast }: { onClose: () =>
   async function action(work: () => Promise<void>) {
     setBusy(true); try { await work(); } catch (e) { toast(e instanceof Error ? e.message : '요청에 실패했어요.'); } finally { setBusy(false); }
   }
-  return <div className="screen"><button className="link" onClick={onClose}>닫기</button><h1 className="h-title">설정 및 계정 관리</h1><button className="btn" onClick={onEditProfile}>목표·프로필 보기</button><section className="card stack-12"><h2 className="h-sub">학교 인증</h2>{verification.status}{verification.data && <><p>{verification.data.schoolEmail} · {verification.data.studentId}</p><p>{verification.data.verified ? '인증 완료' : '인증 미완료'}</p></>}</section>
-    <section className="card stack-12"><h2 className="h-sub">선택 동의</h2>{consents.status}{consents.data && (['aiQualityImprovement', 'jobAlert', 'publicCareerProfile'] as const).map((key, i) => <label key={key}><input type="checkbox" checked={consents.data![key]} disabled={busy} onChange={e => { const checked = e.target.checked; void action(async () => { consents.setData(await backend<Consents>('/users/me/consents', { method: 'PATCH', body: JSON.stringify({ [key]: checked }) })); }); }} />{['AI 품질 개선', '공고 알림', '커리어 프로필 공개'][i]}</label>)}</section>
-    <section className="card stack-12"><h2 className="h-sub">정책 문서</h2>{['privacy', 'terms', 'ai-data'].map((key, i) => <button key={key} disabled={busy} className="link" onClick={() => void action(async () => { setPolicy(await backend(`/policies/${key}`)); })}>{['개인정보 처리방침', '이용약관', 'AI 처리 안내'][i]}</button>)}{policy && <article style={{ whiteSpace: 'pre-wrap' }}><small>버전 {policy.version}</small><p>{policy.body}</p></article>}</section>
-    <button className="btn" disabled={busy} onClick={() => void action(async () => {
-      const data = await backend('/users/me/data-export'); const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-      const link = document.createElement('a'); link.href = url; link.download = 'STACK_my_data.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    })}>내 서버 데이터 내려받기</button>
-    <button className="btn btn--danger" disabled={busy} onClick={() => {
-      if (window.confirm('탈퇴하면 서버에 저장한 개인 데이터가 삭제됩니다. 계속할까요?')) void action(async () => { await backend('/users/me', { method: 'DELETE' }); setSession(null); });
-    }}>회원 탈퇴</button>
+  const downloadData = () => void action(async () => {
+    const data = await backend('/users/me/data-export'); const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a'); link.href = url; link.download = 'STACK_my_data.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  const withdraw = () => {
+    if (window.confirm('탈퇴하면 서버에 저장한 개인 데이터가 삭제됩니다. 계속할까요?')) void action(async () => { await backend('/users/me', { method: 'DELETE' }); setSession(null); });
+  };
+  return <div className="settings-route">
+    <header className="settings-topbar">
+      <button className="back-btn" onClick={onClose} aria-label="설정 닫기"><Icon name="chevronL" size={18} /> 닫기</button>
+      <h1>설정 및 계정 관리</h1>
+    </header>
+    <div className="settings-route__scroll"><div className="screen settings-content">
+      <button className="settings-menu-row" onClick={onEditProfile}><Icon name="target" /><span><b>목표·프로필 보기</b><small>희망 직무 · 목표 기업 수정</small></span><Icon name="chevronR" size={16} /></button>
+      <section className="settings-card stack-12"><p className="settings-eyebrow">학교 인증</p>{verification.status}{verification.data && <><p>{verification.data.schoolEmail} · {verification.data.studentId}</p><p className="t-caption">{verification.data.verified ? '인증 완료' : '인증 미완료'}</p></>}</section>
+      <section className="settings-card stack-12"><p className="settings-eyebrow">선택 동의</p>{consents.status}{consents.data && (['aiQualityImprovement', 'jobAlert', 'publicCareerProfile'] as const).map((key, i) => <label key={key} className="row t-body"><input type="checkbox" checked={consents.data![key]} disabled={busy} onChange={e => { const checked = e.target.checked; void action(async () => { consents.setData(await backend<Consents>('/users/me/consents', { method: 'PATCH', body: JSON.stringify({ [key]: checked }) })); }); }} />{['AI 품질 개선', '공고 알림', '커리어 프로필 공개'][i]}</label>)}</section>
+      <section className="settings-card"><p className="settings-eyebrow">정책 문서</p>{(['privacy', 'terms', 'ai-data'] as const).map((key, i) => <button key={key} disabled={busy} className="settings-link" onClick={() => void action(async () => { setPolicy(await backend(`/policies/${key}`)); })}><span className="settings-link__icon"><Icon name={(['shield', 'info', 'sparkle'] as const)[i]} size={16} /></span><span className="settings-link__copy"><b>{['개인정보 처리방침', '이용약관', 'AI 처리 안내'][i]}</b></span><Icon name="chevronR" size={16} /></button>)}{policy && <article style={{ whiteSpace: 'pre-wrap' }}><small>버전 {policy.version}</small><p>{policy.body}</p></article>}</section>
+      <section className="settings-card"><p className="settings-eyebrow">계정</p>
+        <button className="settings-link" disabled={busy} onClick={downloadData}><span className="settings-link__icon"><Icon name="download" size={16} /></span><span className="settings-link__copy"><b>내 서버 데이터 내려받기</b><small>JSON 파일로 저장돼요</small></span><Icon name="chevronR" size={16} /></button>
+        <button className="settings-link" disabled={busy} onClick={() => void action(() => logout())}><span className="settings-link__icon"><Icon name="logout" size={16} /></span><span className="settings-link__copy"><b>로그아웃</b><small>이 기기에서 로그아웃해요</small></span><Icon name="chevronR" size={16} /></button>
+      </section>
+      <button className="settings-menu-row is-danger" disabled={busy} onClick={withdraw}><Icon name="trash" /><span><b>회원 탈퇴 및 데이터 삭제</b><small>서버에 저장한 개인 데이터가 삭제돼요</small></span><Icon name="chevronR" size={16} /></button>
+    </div></div>
   </div>;
 }

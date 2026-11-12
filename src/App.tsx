@@ -99,7 +99,6 @@ export default function App() {
           )}
         </main>
       </HeaderContext.Provider>
-      {!demoMode && <button className="link" onClick={() => void logout().catch(e => toast(e.message))}>로그아웃</button>}
       <TabBar active={tab} onChange={setTab} />
 
       {modal === 'profile' && (

@@ -128,8 +128,9 @@ export interface Notice {
   type: string;
   title: string;
   desc: string;
-  dday: number;
+  dday: number | null;
   tags: string[];
+  url?: string | null;
 }
 
 /** 수원대학교 전체 단위 공식 자료만 사용. 값이 없으면 null → '자료 준비 중' */
@@ -153,7 +154,7 @@ export interface Senior {
   classOf: string;
   verified: boolean;
   specs: string[];
-  links: { linkedin: string; github: string };
+  links: { github: string };
   timeline: { when: string; what: string }[];
 }
 

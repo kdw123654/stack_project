@@ -1,4 +1,4 @@
-import { LiveExplore, LiveMindmap, LiveSettings } from './screens/LiveData';
+import { LiveMindmap, LiveSettings } from './screens/LiveData';
 import Login from './screens/Login';
 import { demoMode } from './services/http';
 import { getSession, loadMe, listExperiences, saveTarget, logout } from './services/backend';
@@ -73,7 +73,7 @@ export default function App() {
       />
     ),
     experience: <MyExperience list={experiences} setList={setExperiences} toast={toast} />,
-    explore: demoMode ? <Explore profile={profile} goTab={setTab} toast={toast} /> : <LiveExplore toast={toast} />,
+    explore: <Explore profile={profile} goTab={setTab} toast={toast} />,
     mindmap: demoMode ? <Mindmap profile={profile} setProfile={p => { void persistTarget(p); }} goTab={setTab} toast={toast} /> : <LiveMindmap key={profile.job + profile.targetCompany} profile={profile} experiences={experiences} editTarget={() => setModal('profile')} />,
   };
 

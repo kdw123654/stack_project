@@ -30,3 +30,4 @@ AGENTS.md
 # 선배 실제 데이터 (팀 확인 전까지 올리지 않음)
 server/sql/04_suwon_real_data.sql
 server/sql/suwon_seniors_full_dataset.json
+/경험정리_데이터과학부.pdf

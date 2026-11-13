@@ -38,7 +38,7 @@ function LiveStats() {
 function LiveSeniors({ toast }: { toast: Toast }) {
   const { data, status } = useData<{ items: Senior[] }>('/explore/seniors');
   const [selected, setSelected] = useState<string | null>(null);
-  return <>{selected ? <LiveSenior id={selected} back={() => setSelected(null)} toast={toast} /> : <>{status}{data?.items.length === 0 && <p>등록된 선배가 없습니다.</p>}{data?.items.map(s => <button key={s.id} className="card stack-8" onClick={() => setSelected(s.id)}><h2 className="h-sub">{s.displayName} · {s.company}</h2><p>{s.position}</p><p>{s.verified ? '재직 확인' : '재직 미확인'}</p><p>{s.hireSpecs.join(' · ')}</p></button>)}</>}</>;
+  return <>{selected ? <LiveSenior id={selected} back={() => setSelected(null)} toast={toast} /> : <>{status}{data?.items.length === 0 && <p>등록된 선배가 없습니다.</p>}{data?.items.map(s => <button key={s.id} className="card stack-8" onClick={() => setSelected(s.id)}><h2 className="h-sub">{s.displayName} · {s.company}</h2><p>{s.position}</p><p>{s.hireSpecs.join(' · ')}</p></button>)}</>}</>;
 }
 function LiveSenior({ id, back, toast }: { id: string; back: () => void; toast: Toast }) {
   const { data, status } = useData<Senior>(`/explore/seniors/${encodeURIComponent(id)}`);

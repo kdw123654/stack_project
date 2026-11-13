@@ -236,7 +236,7 @@ export default function PortfolioFlow({ experiences, onExit, onSaved, toast, ini
                   <div className="t-caption" style={{ fontSize: 11 }}>{s.desc}</div>
                 </div>
                 <span className={`badge ${TYPE_BADGE[s.type] || 'badge--gray'}`}>{s.type}</span>
-                <button className="icon-btn" style={{ width: 28, height: 28 }} aria-label="슬라이드 빼기" onClick={() => setOutline(outline.filter((x) => x.id !== s.id))}>
+                <button className="icon-btn" aria-label="슬라이드 빼기" onClick={() => setOutline(outline.filter((x) => x.id !== s.id))}>
                   <Icon name="close" size={12} />
                 </button>
               </div>
@@ -260,8 +260,8 @@ export default function PortfolioFlow({ experiences, onExit, onSaved, toast, ini
           <SlidePreview slide={slide} index={cur} projectId={project?.id} picked={picked} pendingImages={pendingImages} />
           <div className="row">
             <span className="t-strong grow" style={{ fontSize: 13 }}>슬라이드 {cur + 1} / {slides.length} · {slide.title}</span>
-            <button className="icon-btn" style={{ width: 32, height: 32 }} disabled={cur === 0} onClick={() => setCur(cur - 1)} aria-label="이전 슬라이드"><Icon name="chevronL" size={16} /></button>
-            <button className="icon-btn" style={{ width: 32, height: 32 }} disabled={cur === slides.length - 1} onClick={() => setCur(cur + 1)} aria-label="다음 슬라이드"><Icon name="chevronR" size={16} /></button>
+            <button className="icon-btn" disabled={cur === 0} onClick={() => setCur(cur - 1)} aria-label="이전 슬라이드"><Icon name="chevronL" size={16} /></button>
+            <button className="icon-btn" disabled={cur === slides.length - 1} onClick={() => setCur(cur + 1)} aria-label="다음 슬라이드"><Icon name="chevronR" size={16} /></button>
           </div>
           <div className="thumb-strip">
             {slides.map((s, i) => (

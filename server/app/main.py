@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from app.common import register_error_handlers
 from app.config import CORS_ORIGINS
-from app.routers import (auth, competency, cover_letters, experiences, explore, files, home, job_postings,
+from app.routers import (admin, auth, competency, cover_letters, experiences, explore, files, home, job_postings,
                          portfolios, users)
 app = FastAPI(title="STACK API")
 
@@ -11,7 +11,7 @@ app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_credentials
                    allow_methods=["*"], allow_headers=["*"])
 register_error_handlers(app)
 
-for r in [auth, users, files, experiences, job_postings, cover_letters, portfolios, explore, home, competency]:
+for r in [admin, auth, users, files, experiences, job_postings, cover_letters, portfolios, explore, home, competency]:
     app.include_router(r.router, prefix="/api/v1")
 
 @app.get("/health")

@@ -159,6 +159,7 @@ export const schoolStats: SchoolStats = {
   year: '2025',
   source: '수원대 취업지원처 공식 자료',
   updateCycle: '매년 갱신 예정 (공식 자료 공개 시)',
+  trend: [],
   overall: [
     { label: '취업률', value: null },
     { label: '취업자 수', value: null },

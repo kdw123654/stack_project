@@ -131,6 +131,20 @@ export interface Notice {
   dday: number | null;
   tags: string[];
   url?: string | null;
+  jobFit?: boolean;
+  scope?: '교내' | '교외';
+  org?: string;
+  postedAt?: string | null;
+}
+
+export interface Club {
+  id: string;
+  name: string;
+  scope: '연합' | '교내';
+  category: string;
+  title: string;
+  dday: number | null;
+  url: string | null;
 }
 
 /** 수원대학교 전체 단위 공식 자료만 사용. 값이 없으면 null → '자료 준비 중' */
@@ -139,7 +153,18 @@ export interface SchoolStats {
   source: string;
   updateCycle: string;
   overall: { label: string; value: string | null }[];
+  trend: { year: number; value: number; source: string | null }[];
   byJob: { label: string; value: number }[];
+  groups?: StatGroup[];
+}
+
+export interface StatGroup {
+  id: string;
+  title: string;
+  desc: string;
+  unit: string;
+  source: string | null;
+  rows: { label: string; value: number }[];
 }
 
 export interface Senior {

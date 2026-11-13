@@ -240,7 +240,7 @@ export default function CoverLetterFlow({ experiences, onExit, onSaved, toast, i
             onCopy={() => { navigator.clipboard?.writeText(drafts[active].text); toast('복사했어요'); }}
           />
           <button className="btn btn--primary btn--block" disabled={saving || rewriting} onClick={save}>{saving ? '저장 중' : canSaveToServer ? '자소서 초안 서버 저장' : '이 기기에 자소서 초안 저장'}</button>
-          <button className="link" style={{ alignSelf: 'center', fontSize: 13 }} onClick={() => toast('코칭 신청 화면으로 이동')}>취업지원처 무료 코칭 받기 →</button>
+          <a className="link" style={{ alignSelf: 'center', fontSize: 13 }} href="https://career.suwon.ac.kr" target="_blank" rel="noreferrer">수원대 취업지원처 자소서 상담 신청 <Icon name="external" size={12} /></a>
         </>
       )}
     </div>

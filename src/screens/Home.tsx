@@ -190,7 +190,7 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
       <section className="card card--navy">
         <div className="row row--between" style={{ marginBottom: 12 }}>
           <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.04em', opacity: 0.8 }}>MY TARGET & PROFILE</span>
-          <button onClick={onEditProfile} style={{ fontSize: 12, fontWeight: 600, color: '#C9DBFF' }}>
+          <button className="text-btn" onClick={onEditProfile} style={{ color: '#C9DBFF', paddingInline: 8, marginRight: -8 }}>
             프로필 수정
           </button>
         </div>
@@ -300,7 +300,7 @@ export default function Home({ profile, onEditProfile, goTab, onSaved }: HomePro
                 <FileIcon name={f.name} />
                 <span className="grow t-strong" style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
                 {!("recent" in f && f.recent) && (
-                  <button className="icon-btn" style={{ width: 28, height: 28 }} aria-label="파일 빼기" onClick={() => { setFiles(files.filter((_, j) => j !== i)); setSourceFileId(null); setAnalysisId(''); }}>
+                  <button className="icon-btn" aria-label="파일 빼기" onClick={() => { setFiles(files.filter((_, j) => j !== i)); setSourceFileId(null); setAnalysisId(''); }}>
                     <Icon name="close" size={14} />
                   </button>
                 )}

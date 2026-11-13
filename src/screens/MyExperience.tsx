@@ -1,6 +1,7 @@
 import { demoMode } from '../services/http';
 import { updateExperience, deleteExperience } from '../services/backend';
 import { useState } from 'react';
+import { clearPendingPosting, peekPendingPosting } from '../services/pendingPosting';
 import Icon from '../components/Icon';
 import { Sheet, SubHeader, EditableField } from '../components/Layout';
 import { FileIcon } from './Home';
@@ -22,7 +23,9 @@ export default function MyExperience({ list, setList, toast }: MyExperienceProps
   const [filter, setFilter] = useState('전체');
   const [detail, setDetail] = useState<Experience | null>(null);
   const [builder, setBuilder] = useState<'cover' | 'slides' | null>(null);
+  const [pending, setPending] = useState(peekPendingPosting);
   useHideHeader(Boolean(detail || builder));
+  const openBuilder = (kind: 'cover' | 'slides') => { setSavedCover(undefined); setSavedSlides(undefined); setPending(null); setBuilder(kind); };
 
   // EX-03 / EX-04: 버튼을 누르면 4단계 전용 화면으로 전환
   if (builder === 'cover') return <CoverLetterFlow initial={savedCover} experiences={list} onExit={() => setBuilder(null)} toast={toast} />;
@@ -53,6 +56,22 @@ export default function MyExperience({ list, setList, toast }: MyExperienceProps
 
   return (
     <div className="screen">
+      {pending && (
+        <section className="card card--tint stack-8">
+          <div className="row row--between">
+            <span className="badge badge--blue">탐색에서 고른 공고</span>
+            <button className="text-btn t-caption" onClick={() => { clearPendingPosting(); setPending(null); }}>닫기</button>
+          </div>
+          <div className="t-strong" style={{ fontSize: 14 }}>{pending.title}</div>
+          <p className="t-caption">이 공고 내용으로 바로 시작할 수 있어요.</p>
+          <div className="grid-2">
+            <button className="btn btn--primary btn--sm" disabled={!list.length} onClick={() => openBuilder('cover')}>자소서 만들기</button>
+            <button className="btn btn--blue btn--sm" disabled={!list.length} onClick={() => openBuilder('slides')}>포폴 만들기</button>
+          </div>
+          {!list.length && <p className="t-caption">먼저 홈에서 경험 파일을 올려 주세요.</p>}
+        </section>
+      )}
+
       {/* EX-03/04 AI 서류 빌더 */}
       <section className="card card--navy stack-12">
         <div className="row row--between">
@@ -66,10 +85,10 @@ export default function MyExperience({ list, setList, toast }: MyExperienceProps
           </p>
         </div>
         <div className="grid-2">
-          <button className="btn btn--sm" style={{ background: '#fff', color: 'var(--navy-900)' }} disabled={!list.length} onClick={() => { setSavedCover(undefined); setBuilder('cover'); }}>
+          <button className="btn btn--sm" style={{ background: '#fff', color: 'var(--navy-900)' }} disabled={!list.length} onClick={() => openBuilder('cover')}>
             공고 맞춤 자소서
           </button>
-          <button className="btn btn--sm btn--blue" disabled={!list.length} onClick={() => { setSavedSlides(undefined); setBuilder('slides'); }}>
+          <button className="btn btn--sm btn--blue" disabled={!list.length} onClick={() => openBuilder('slides')}>
             포폴 슬라이드
           </button>
         </div>
@@ -86,11 +105,11 @@ export default function MyExperience({ list, setList, toast }: MyExperienceProps
       {/* EX-05 취업지원처 코칭 */}
       <section className="card row">
         <div className="grow">
-          <span className="badge badge--success">수원대 취업지원처 연동</span>
-          <div className="t-strong" style={{ fontSize: 14, marginTop: 6 }}>현직 컨설턴트 무료 자소서 코칭</div>
-          <div className="t-caption">정리한 초안을 보내고 피드백을 받아요</div>
+          <span className="badge badge--success">수원대 취업지원처</span>
+          <div className="t-strong" style={{ fontSize: 14, marginTop: 6 }}>자소서·면접 취업 상담</div>
+          <div className="t-caption">만든 초안을 들고 취업지원처 상담을 신청해 보세요 (진로취업 사이트로 이동)</div>
         </div>
-        <button className="btn btn--point btn--sm" onClick={() => toast('코칭 신청은 취업지원처에 문의해 주세요. 현재 앱에서는 접수하지 않습니다.')}>신청하기</button>
+        <a className="btn btn--point btn--sm" href="https://career.suwon.ac.kr" target="_blank" rel="noreferrer">신청하기 <Icon name="external" size={12} /></a>
       </section>
 
       {/* EX-01 마스터 경험 보관함 */}

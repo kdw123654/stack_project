@@ -69,7 +69,7 @@ export default function Mindmap({ profile, setProfile, goTab, toast }: MindmapPr
           <button className="btn btn--soft btn--block" onClick={() => setEditTarget(true)}>목표 기업 설정하고 비교하기</button>
         ) : compareReady ? (
           <>
-            <p className="t-caption">재직 확인된 선배 {targetCompare.sampleSize}명의 입사 당시 스펙 기준이에요.</p>
+            <p className="t-caption">선배 {targetCompare.sampleSize}명의 입사 당시 스펙 기준이에요.</p>
             <div>
               {targetCompare.rows.map((r) => (
                 <div key={r.label} className="compare-row">

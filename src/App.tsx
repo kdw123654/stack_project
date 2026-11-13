@@ -1,4 +1,4 @@
-import { LiveMindmap, LiveSettings } from './screens/LiveData';
+import { LiveMindmap } from './screens/LiveData';
 import Login from './screens/Login';
 import { demoMode } from './services/http';
 import { getSession, loadMe, listExperiences, saveTarget, logout } from './services/backend';
@@ -82,7 +82,7 @@ export default function App() {
       {/* 메인 탭: 로고 헤더가 내용과 함께 스크롤되어 사라짐 / 상세 화면: 헤더 숨김 + 뒤로 줄 고정 */}
       <HeaderContext.Provider value={setHideHeader}>
         <main key={tab} className="scroller">
-          {settingsOpen && !demoMode ? <LiveSettings onClose={() => setSettingsOpen(false)} onEditProfile={() => setModal('profile')} toast={toast} /> : settingsOpen ? (
+          {settingsOpen ? (
             <SettingsScreen
               profile={profile}
               experiences={experiences}

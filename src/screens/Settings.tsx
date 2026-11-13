@@ -1,7 +1,41 @@
 import { demoMode } from '../services/http';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Icon, { type IconName } from '../components/Icon';
+import { backend, logout, setSession } from '../services/backend';
 import type { Experience, Profile } from '../types';
+
+/* ---------- 서버 데이터 (데모 모드에서는 이 기기 값만 써요) ---------- */
+type Consents = { termsAgreedAt: string; privacyAgreedAt: string; aiQualityImprovement: boolean; jobAlert: boolean; publicCareerProfile: boolean; updatedAt: string };
+type ConsentKey = 'aiQualityImprovement' | 'jobAlert' | 'publicCareerProfile';
+type Verification = { verified: boolean; schoolEmail: string; verifiedAt: string | null; studentId: string | null };
+type Policy = { type: string; version: string; effectiveDate: string; body: string };
+type PolicyPageId = 'privacyPolicy' | 'terms' | 'aiPolicy';
+const POLICY_TYPE: Record<PolicyPageId, string> = { privacyPolicy: 'privacy', terms: 'terms', aiPolicy: 'ai-data' };
+
+const ymd = (iso?: string | null) => (iso ? iso.slice(0, 10).replace(/-/g, '.') : '-');
+const errText = (e: unknown) => (e instanceof Error ? e.message : '요청에 실패했어요.');
+
+function useServer<T>(path: string | null) {
+  const [data, setData] = useState<T | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!path) return;
+    let alive = true;
+    backend<T>(path).then((v) => { if (alive) setData(v); }).catch((e) => { if (alive) setError(errText(e)); });
+    return () => { alive = false; };
+  }, [path]);
+  return { data, setData, error };
+}
+
+// 서버 본문 형식: 안내문 + "## 제목\n내용" 묶음
+function parsePolicy(body: string) {
+  const [intro, ...rest] = body.split(/\n*^## /m);
+  const sections = rest.map((chunk) => {
+    const [title, ...lines] = chunk.split('\n');
+    return { title: title.trim(), body: lines.join('\n').trim() };
+  });
+  return { intro: intro.trim(), sections, toc: sections.map((x) => x.title) };
+}
 
 type Route = 'menu' | 'privacy' | 'privacyPolicy' | 'terms' | 'aiPolicy' | 'consents' | 'account' | 'school' | 'guide' | 'guideDetail' | 'withdraw' | 'withdrawComplete';
 
@@ -60,12 +94,33 @@ const POLICY_CONTENT: Record<'privacyPolicy' | 'terms' | 'aiPolicy', { title: st
 
 export default function SettingsScreen({ profile, experiences, onClose, onGoHome, onEditProfile, onToast }: SettingsProps) {
   const [route, setRoute] = useState<Route>('menu');
-  const [optionalAI, setOptionalAI] = useState(false);
-  const [jobAlerts, setJobAlerts] = useState(true);
-  const [peerStats, setPeerStats] = useState(true);
-  const [reason, setReason] = useState('원하는 기능이 없어요');
+  const [reason, setReason] = useState('');
   const [withdrawAgreed, setWithdrawAgreed] = useState(false);
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const consents = useServer<Consents>(demoMode ? null : '/users/me/consents');
+  const verification = useServer<Verification>(demoMode ? null : '/users/me/school-verification');
+  const [demoConsents, setDemoConsents] = useState({ aiQualityImprovement: false, jobAlert: false, publicCareerProfile: false });
+
+  const run = async (work: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    try { await work(); } catch (e) { onToast(errText(e)); } finally { setBusy(false); }
+  };
+  const toggleConsent = (key: ConsentKey, value: boolean) => {
+    if (demoMode) return setDemoConsents({ ...demoConsents, [key]: value });
+    void run(async () => {
+      consents.setData(await backend<Consents>('/users/me/consents', { method: 'PATCH', body: JSON.stringify({ [key]: value }) }));
+      onToast(value ? '동의했어요' : '동의를 철회했어요');
+    });
+  };
+  // 탈퇴: 서버에서 계정·파일·데이터를 지운 뒤 완료 화면 → 로그인 화면
+  const withdraw = () => run(async () => {
+    if (!demoMode) await backend('/users/me', { method: 'DELETE' });
+    setConfirmWithdraw(false);
+    setRoute('withdrawComplete');
+  });
+  const finishWithdraw = () => (demoMode ? onClose() : setSession(null));
 
   const back = () => {
     if (route === 'menu') onClose();
@@ -74,16 +129,17 @@ export default function SettingsScreen({ profile, experiences, onClose, onGoHome
     else setRoute('menu');
   };
 
-  const downloadData = () => {
-    const payload = JSON.stringify({ profile, experiences }, null, 2);
-    const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
+  // 서버에 저장된 내 데이터 전체(프로필·동의·파일 목록·경험·공고·자소서·포폴·선배 질문)를 JSON으로
+  const downloadData = () => void run(async () => {
+    const data = demoMode ? { profile, experiences } : await backend('/users/me/data-export');
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
     const anchor = document.createElement('a');
     anchor.href = url;
     anchor.download = 'STACK_my_data.json';
     anchor.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     onToast('내 데이터 파일을 내려받았어요');
-  };
+  });
 
   const pageTitle: Partial<Record<Route, string>> = {
     menu: '설정 및 계정 관리', privacy: '개인정보 보호 및 보안', privacyPolicy: '개인정보 처리방침', terms: '서비스 이용약관',
@@ -103,21 +159,22 @@ export default function SettingsScreen({ profile, experiences, onClose, onGoHome
       </header>
 
       <div className="settings-route__scroll">
-      {!demoMode && <p className="notice notice--point" role="status">이 화면은 아직 샘플 데이터입니다. 서버 연동 전입니다.</p>}
-        {route === 'menu' && <SettingsMenu onNavigate={setRoute} />}
+        {route === 'menu' && <SettingsMenu onNavigate={setRoute} busy={busy} onLogout={() => void run(() => logout())} />}
         {route === 'privacy' && <PrivacyHub onNavigate={setRoute} />}
-        {(route === 'privacyPolicy' || route === 'terms' || route === 'aiPolicy') && <PolicyPage page={route} />}
+        {(route === 'privacyPolicy' || route === 'terms' || route === 'aiPolicy') && <PolicyPage key={route} page={route} />}
         {route === 'consents' && (
-          <ConsentHistory optionalAI={optionalAI} setOptionalAI={setOptionalAI} jobAlerts={jobAlerts} setJobAlerts={setJobAlerts} peerStats={peerStats} setPeerStats={setPeerStats} onNavigate={setRoute} />
+          demoMode ? <ConsentHistory consents={{ termsAgreedAt: '', privacyAgreedAt: '', updatedAt: '', ...demoConsents }} verifiedAt={null} busy={busy} onToggle={toggleConsent} onNavigate={setRoute} />
+            : consents.data ? <ConsentHistory consents={consents.data} verifiedAt={verification.data?.verifiedAt ?? null} busy={busy} onToggle={toggleConsent} onNavigate={setRoute} />
+              : <p className="t-caption" role={consents.error ? 'alert' : 'status'}>{consents.error || '동의 내역을 불러오는 중'}</p>
         )}
         {route === 'account' && <AccountManagement onNavigate={setRoute} onEditProfile={onEditProfile} onDownload={downloadData} />}
-        {route === 'school' && <SchoolPage profile={profile} onEditProfile={onEditProfile} onToast={onToast} />}
+        {route === 'school' && <SchoolPage profile={profile} verification={verification.data} error={verification.error} onEditProfile={onEditProfile} busy={busy} onReverify={() => void run(() => logout())} />}
         {route === 'guide' && <GuidePage onNavigate={setRoute} onGoHome={onGoHome} />}
         {route === 'guideDetail' && <GuideDetail onGoHome={onClose} />}
         {route === 'withdraw' && (
-          <WithdrawPage reason={reason} setReason={setReason} agreed={withdrawAgreed} setAgreed={setWithdrawAgreed} onConfirm={() => setConfirmWithdraw(true)} />
+          <WithdrawPage reason={reason} setReason={setReason} agreed={withdrawAgreed} setAgreed={setWithdrawAgreed} onConfirm={() => setConfirmWithdraw(true)} counts={{ experiences: experiences.length }} />
         )}
-        {route === 'withdrawComplete' && <WithdrawComplete onClose={onClose} />}
+        {route === 'withdrawComplete' && <WithdrawComplete onDone={finishWithdraw} />}
       </div>
 
       {confirmWithdraw && (
@@ -127,8 +184,8 @@ export default function SettingsScreen({ profile, experiences, onClose, onGoHome
             <h2 id="withdraw-confirm-title">정말 탈퇴할까요?</h2>
             <p>저장한 경험, 업로드한 파일, 서류 초안이 모두 삭제되고 되돌릴 수 없어요.</p>
             <div className="grid-2">
-              <button className="btn btn--ghost" onClick={() => setConfirmWithdraw(false)}>취소</button>
-              <button className="btn btn--danger" onClick={() => { setConfirmWithdraw(false); setRoute('withdrawComplete'); }}>탈퇴하기</button>
+              <button className="btn btn--ghost" disabled={busy} onClick={() => setConfirmWithdraw(false)}>취소</button>
+              <button className="btn btn--danger" disabled={busy} onClick={() => void withdraw()}>{busy ? '삭제 중' : '탈퇴하기'}</button>
             </div>
           </div>
         </div>
@@ -137,12 +194,13 @@ export default function SettingsScreen({ profile, experiences, onClose, onGoHome
   );
 }
 
-function SettingsMenu({ onNavigate }: { onNavigate: (route: Route) => void }) {
+function SettingsMenu({ onNavigate, onLogout, busy }: { onNavigate: (route: Route) => void; onLogout: () => void; busy: boolean }) {
   return (
     <div className="screen settings-content">
       <button className="settings-menu-row" onClick={() => onNavigate('privacy')}><Icon name="shield" /><span><b>개인정보 보호 및 보안</b><small>개인정보 처리방침 · 동의 내역</small></span><Icon name="chevronR" size={16} /></button>
-      <button className="settings-menu-row" onClick={() => onNavigate('school')}><Icon name="building" /><span><b>학교 인증 관리 (수원대학교)</b><small>학교 포털 연동 정보 확인</small></span><Icon name="chevronR" size={16} /></button>
+      <button className="settings-menu-row" onClick={() => onNavigate('school')}><Icon name="building" /><span><b>학교 인증 관리 (수원대학교)</b><small>학교 메일 인증 정보 확인</small></span><Icon name="chevronR" size={16} /></button>
       <button className="settings-menu-row" onClick={() => onNavigate('guide')}><Icon name="book" /><span><b>서비스 이용 가이드</b><small>경험 등록 및 AI 분석 이용 방법</small></span><Icon name="chevronR" size={16} /></button>
+      {!demoMode && <button className="settings-menu-row" disabled={busy} onClick={onLogout}><Icon name="logout" /><span><b>로그아웃</b><small>이 기기에서 로그아웃해요</small></span><Icon name="chevronR" size={16} /></button>}
       <button className="settings-menu-row is-danger" onClick={() => onNavigate('withdraw')}><Icon name="trash" /><span><b>회원 탈퇴 및 데이터 삭제</b><small>탈퇴 전 삭제 정보를 확인해 주세요</small></span><Icon name="chevronR" size={16} /></button>
     </div>
   );
@@ -160,7 +218,7 @@ function PrivacyHub({ onNavigate }: { onNavigate: (route: Route) => void }) {
       </section>
       <section className="settings-card">
         <p className="settings-eyebrow">내 정보</p>
-        <SettingsLink icon="list" title="개인정보 수집 및 이용 동의 내역" subtitle="필수 3 · 선택 3 · 선택 항목은 변경 가능" onClick={() => onNavigate('consents')} />
+        <SettingsLink icon="list" title="개인정보 수집 및 이용 동의 내역" subtitle="필수 2 · 선택 3 · 선택 항목은 변경 가능" onClick={() => onNavigate('consents')} />
         <SettingsLink icon="user" title="계정 및 개인정보 관리 안내" subtitle="열람 · 정정 · 내려받기 · 삭제 요청 방법" onClick={() => onNavigate('account')} />
       </section>
       <p className="settings-note"><Icon name="info" size={14} /> 정책 문서는 현재 초안이며, 확정된 내용으로 교체할 예정입니다.</p>
@@ -172,13 +230,17 @@ function SettingsLink({ icon, title, subtitle, onClick }: { icon: IconName; titl
   return <button className="settings-link" onClick={onClick}><span className="settings-link__icon"><Icon name={icon} size={18} /></span><span className="settings-link__copy"><b>{title}</b><small>{subtitle}</small></span><Icon name="chevronR" size={16} /></button>;
 }
 
-function PolicyPage({ page }: { page: 'privacyPolicy' | 'terms' | 'aiPolicy' }) {
-  const policy = POLICY_CONTENT[page];
+function PolicyPage({ page }: { page: PolicyPageId }) {
+  const server = useServer<Policy>(demoMode ? null : `/policies/${POLICY_TYPE[page]}`);
+  if (!demoMode && !server.data) return <p className="t-caption" role={server.error ? 'alert' : 'status'}>{server.error || '문서를 불러오는 중'}</p>;
+  const policy = server.data ? { title: POLICY_CONTENT[page].title, ...parsePolicy(server.data.body) } : POLICY_CONTENT[page];
+  const version = server.data?.version ?? 'v0.1';
+  const draft = version.startsWith('v0.');
   return (
     <div className="screen settings-content">
       <div className="settings-policy-meta">
-        <div><span className="badge badge--point">초안 · 확정 전</span><span className="badge badge--blue">버전 v0.1</span></div>
-        <small>시행일: 확정 후 기재 · 최종 수정일: 확정 후 기재</small>
+        <div>{draft && <span className="badge badge--point">초안 · 확정 전</span>}<span className="badge badge--blue">버전 {version}</span></div>
+        <small>{server.data ? `기준일 ${ymd(server.data.effectiveDate)}` : '시행일: 확정 후 기재'}{draft && ' · 확정되면 새 버전으로 바뀌어요'}</small>
       </div>
       <section className="settings-card">
         <p className="settings-eyebrow">목차</p>
@@ -186,36 +248,44 @@ function PolicyPage({ page }: { page: 'privacyPolicy' | 'terms' | 'aiPolicy' }) 
       </section>
       <section className="settings-card settings-policy-copy">
         <p>{policy.intro}</p>
-        {policy.sections.map((section, index) => <article key={section.title}><h2><b>{String(index + 1).padStart(2, '0')}</b>{section.title}</h2><p>{section.body}</p></article>)}
+        {policy.sections.map((section, index) => <article key={section.title}><h2><b>{String(index + 1).padStart(2, '0')}</b>{section.title}</h2><p style={{ whiteSpace: 'pre-line' }}>{section.body}</p></article>)}
       </section>
     </div>
   );
 }
 
-function ConsentHistory({ optionalAI, setOptionalAI, jobAlerts, setJobAlerts, peerStats, setPeerStats, onNavigate }: {
-  optionalAI: boolean; setOptionalAI: (value: boolean) => void; jobAlerts: boolean; setJobAlerts: (value: boolean) => void; peerStats: boolean; setPeerStats: (value: boolean) => void; onNavigate: (route: Route) => void;
+function ConsentHistory({ consents, verifiedAt, busy, onToggle, onNavigate }: {
+  consents: Consents; verifiedAt: string | null; busy: boolean; onToggle: (key: ConsentKey, value: boolean) => void; onNavigate: (route: Route) => void;
 }) {
+  const required: [string, string, Route][] = [
+    ['서비스 이용약관 동의', consents.termsAgreedAt, 'terms'],
+    ['개인정보 수집 및 이용 동의', consents.privacyAgreedAt, 'privacyPolicy'],
+  ];
+  const optional: [ConsentKey, string, string][] = [
+    ['aiQualityImprovement', 'AI 분석 품질 개선을 위한 데이터 활용', '업로드 파일·분석 결과를 품질 개선에 쓰는 것에 동의해요 (AI 데이터 처리 안내 참고)'],
+    ['jobAlert', '맞춤 공고 알림 수신', '희망 직무에 맞는 교내외 공고 알림을 받아요'],
+    ['publicCareerProfile', '커리어 프로필 공개', '내 커리어 정보를 다른 학생에게 보여 주는 것에 동의해요'],
+  ];
   return (
     <div className="screen settings-content">
-      <section className="settings-card settings-consent-summary"><Icon name="check" size={20} /><div><b>가입 시 동의한 항목이에요</b><small>최초 동의일 2026.11.03 · 수원대학교 포털 인증으로 가입</small></div></section>
+      <section className="settings-card settings-consent-summary"><Icon name="check" size={20} /><div><b>가입 시 동의한 항목이에요</b><small>최초 동의일 {ymd(consents.termsAgreedAt)}{verifiedAt && ` · 학교 메일 인증 ${ymd(verifiedAt)}`}</small></div></section>
       <section className="settings-card">
         <h2 className="settings-section-title">필수 동의 <span className="badge badge--navy">필수</span></h2>
-        {['서비스 이용약관 동의', '개인정보 수집 및 이용 동의', '수원대학교 포털 정보 연동 동의'].map((title) => <div className="consent-row" key={title}><span><b>{title}</b><small>동의일 2026.11.03</small></span><b className="settings-consent-state">동의함</b><button onClick={() => onNavigate(title.startsWith('서비스') ? 'terms' : 'privacyPolicy')}>보기</button></div>)}
+        {required.map(([title, at, page]) => <div className="consent-row" key={title}><span><b>{title}</b><small>동의일 {ymd(at)}</small></span><b className="settings-consent-state">동의함</b><button onClick={() => onNavigate(page)}>보기</button></div>)}
         <p className="settings-note"><Icon name="info" size={14} /> 필수 동의는 철회할 수 없어요. 철회를 원하면 회원 탈퇴를 진행해 주세요.</p>
         <button className="settings-text-link" onClick={() => onNavigate('withdraw')}>회원 탈퇴 및 데이터 삭제 →</button>
       </section>
       <section className="settings-card">
         <h2 className="settings-section-title">선택 동의 <span className="badge badge--blue">언제든 변경 가능</span></h2>
-        <ConsentToggle title="AI 분석 품질 개선을 위한 데이터 활용" detail="업로드 파일은 개인 식별 정보를 제거하고 활용돼요 (정책 확정 전)" value={optionalAI} onChange={setOptionalAI} />
-        <ConsentToggle title="맞춤 공고 · 비교 알림 수신" detail="취업지원처 공고와 알림" value={jobAlerts} onChange={setJobAlerts} />
-        <ConsentToggle title="유사 사용자 비교 통계 활용" detail="같은 학년 비교 기능 오픈 시 익명 통계로만 사용" value={peerStats} onChange={setPeerStats} />
+        {optional.map(([key, title, detail]) => <ConsentToggle key={key} title={title} detail={detail} value={consents[key]} at={consents.updatedAt} busy={busy} onChange={(v) => onToggle(key, v)} />)}
+        <button className="settings-text-link" onClick={() => onNavigate('aiPolicy')}>AI 데이터 처리 및 활용 안내 보기 →</button>
       </section>
     </div>
   );
 }
 
-function ConsentToggle({ title, detail, value, onChange }: { title: string; detail: string; value: boolean; onChange: (value: boolean) => void }) {
-  return <div className="consent-toggle"><div><b>{title}</b><small>{detail}</small><small>{value ? '2026.11.03 동의' : '미동의'}</small></div><button className={`toggle ${value ? 'is-on' : ''}`} role="switch" aria-checked={value} aria-label={title} onClick={() => onChange(!value)}><span /></button></div>;
+function ConsentToggle({ title, detail, value, at, busy, onChange }: { title: string; detail: string; value: boolean; at: string; busy: boolean; onChange: (value: boolean) => void }) {
+  return <div className="consent-toggle"><div><b>{title}</b><small>{detail}</small><small>{value ? `동의함${at ? ` · ${ymd(at)} 기준` : ''}` : '미동의'}</small></div><button className={`toggle ${value ? 'is-on' : ''}`} role="switch" aria-checked={value} aria-label={title} disabled={busy} onClick={() => onChange(!value)}><span /></button></div>;
 }
 
 function AccountManagement({ onNavigate, onEditProfile, onDownload }: { onNavigate: (route: Route) => void; onEditProfile: () => void; onDownload: () => void }) {
@@ -223,8 +293,8 @@ function AccountManagement({ onNavigate, onEditProfile, onDownload }: { onNaviga
     <div className="screen settings-content">
       <p className="t-body">내 정보를 확인하고, 고치고, 내려받거나 삭제를 요청하는 방법이에요.</p>
       <AccountCard icon="search" title="내 정보 확인" detail="프로필과 학교 인증 정보는 설정에서 바로 확인할 수 있어요." action="학교 인증 관리 →" onClick={() => onNavigate('school')} />
-      <AccountCard icon="edit" title="정보 수정" detail="희망 직무·목표 기업은 직접 수정할 수 있어요. 학과·학년은 수원대학교 포털 연동 정보라 직접 수정할 수 없어요." action="프로필 수정 →" onClick={onEditProfile} />
-      <AccountCard icon="download" title="내 데이터 내려받기" detail="저장한 경험과 서류 초안을 파일로 받을 수 있어요." action="요청하기 →" onClick={onDownload} />
+      <AccountCard icon="edit" title="정보 수정" detail="희망 직무·목표 기업은 직접 수정할 수 있어요. 학과는 처음 등록한 뒤에는 바꿀 수 없어요." action="프로필 수정 →" onClick={onEditProfile} />
+      <AccountCard icon="download" title="내 데이터 내려받기" detail="서버에 저장된 프로필·동의 내역·경험·공고·자소서·포트폴리오·선배 질문을 JSON 파일로 바로 받아요." action="지금 내려받기 →" onClick={onDownload} />
       <AccountCard icon="info" title="처리 정지 · 삭제 요청" detail="개인정보 처리 정지나 삭제를 요청할 수 있어요. 계정 전체 삭제는 회원 탈퇴로 진행돼요." action="회원 탈퇴 및 데이터 삭제 →" onClick={() => onNavigate('withdraw')} />
       <p className="settings-note"><Icon name="mail" size={14} /> 개인정보 보호책임자 · 문의처<br />담당자와 연락처는 서비스 확정 후 기재돼요.</p>
     </div>
@@ -235,17 +305,27 @@ function AccountCard({ icon, title, detail, action, onClick }: { icon: IconName;
   return <section className="settings-card settings-account-card"><span className="settings-link__icon"><Icon name={icon} size={18} /></span><div><b>{title}</b><p>{detail}</p><button className="settings-text-link" onClick={onClick}>{action}</button></div></section>;
 }
 
-function SchoolPage({ profile, onEditProfile, onToast }: { profile: Profile; onEditProfile: () => void; onToast: (message: string) => void }) {
+function SchoolPage({ profile, verification, error, busy, onEditProfile, onReverify }: {
+  profile: Profile; verification: Verification | null; error: string; busy: boolean; onEditProfile: () => void; onReverify: () => void;
+}) {
+  const v = verification;
+  const verified = demoMode || Boolean(v?.verified);
   return (
     <div className="screen settings-content">
       <section className="settings-card school-card">
-        <div className="school-card__title"><span className="school-emblem"><Icon name="graduation" size={22} /></span><span><small>인증 학교</small><b>수원대학교</b></span><span className="badge badge--success">✓ 인증 완료</span></div>
+        <div className="school-card__title"><span className="school-emblem"><Icon name="graduation" size={22} /></span><span><small>인증 학교</small><b>수원대학교</b></span><span className={`badge ${verified ? 'badge--success' : 'badge--point'}`}>{verified ? '✓ 인증 완료' : '인증 필요'}</span></div>
         <div className="divider" />
-        <p className="settings-eyebrow">포털 연동 정보</p>
-        <LockedInfo label="학과" value={profile.department} />
-        <LockedInfo label="학년" value={profile.grade} />
-        <p className="settings-note"><Icon name="lock" size={14} /> 학과와 학년은 수원대학교 포털에서 확인된 값으로 고정돼요. STACK에서 직접 수정할 수 없어요.</p>
-        <div className="school-meta"><span>인증 방식<b>수원대학교 포털 간편 인증</b></span><span>인증 일자<b>2026.11.03</b></span><span>최근 갱신<b>2026.11.03</b></span></div>
+        {!demoMode && !v && <p className="t-caption" role={error ? 'alert' : 'status'}>{error || '인증 정보를 불러오는 중'}</p>}
+        <p className="settings-eyebrow">가입 정보</p>
+        <LockedInfo label="학과" value={profile.department} tag="변경 불가" />
+        <LockedInfo label="학년" value={profile.grade} tag="가입 시 등록" />
+        {v?.studentId && <LockedInfo label="학번" value={v.studentId} tag="로그인 ID" />}
+        <p className="settings-note"><Icon name="lock" size={14} /> 학과는 처음 등록한 뒤에는 바꿀 수 없어요. 잘못 등록했다면 아래 안내를 확인해 주세요.</p>
+        <div className="school-meta">
+          <span>인증 방식<b>수원대 학교 메일 인증 (@suwon.ac.kr)</b></span>
+          {v && <span>인증 메일<b>{v.schoolEmail}</b></span>}
+          {v && <span>인증 일자<b>{ymd(v.verifiedAt)}</b></span>}
+        </div>
       </section>
       <section className="settings-card">
         <div className="settings-section-title">직접 수정할 수 있는 정보 <span className="badge badge--blue">학교 인증 정보 아님</span></div>
@@ -253,13 +333,18 @@ function SchoolPage({ profile, onEditProfile, onToast }: { profile: Profile; onE
         <p className="school-profile-row"><span>목표 기업</span><b>{profile.targetCompany || '미설정'}</b></p>
         <button className="btn btn--soft btn--block" onClick={onEditProfile}><Icon name="edit" size={15} /> 프로필에서 수정하기</button>
       </section>
-      <section className="settings-card"><h2 className="h-sub">인증 정보에 문제가 있나요?</h2><p className="t-caption" style={{ marginTop: 6 }}>포털 정보가 최신이 아니거나 학교 인증에 문제가 있다면 문의해 주세요.</p><button className="settings-text-link" onClick={() => onToast('인증 문의 기능은 준비 중이에요')}>인증 문의하기 →</button></section>
+      <section className="settings-card stack-8">
+        <h2 className="h-sub">인증 정보에 문제가 있나요?</h2>
+        <p className="t-caption">학교 메일로 다시 인증하려면 로그아웃한 뒤 로그인 화면에서 학교 메일 인증을 진행해 주세요. 학적 정보(학과·학년) 자체가 틀렸다면 수원대 포털에서 확인해 주세요.</p>
+        {!demoMode && <button className="settings-text-link" disabled={busy} onClick={onReverify}>로그아웃하고 다시 인증하기 →</button>}
+        <a className="settings-text-link" href="https://portal.suwon.ac.kr" target="_blank" rel="noreferrer">수원대 포털 열기 →</a>
+      </section>
     </div>
   );
 }
 
-function LockedInfo({ label, value }: { label: string; value: string }) {
-  return <div className="locked-info"><Icon name="lock" size={15} /><span><small>{label}</small><b>{value}</b></span><small>포털 연동</small></div>;
+function LockedInfo({ label, value, tag }: { label: string; value: string; tag: string }) {
+  return <div className="locked-info"><Icon name="lock" size={15} /><span><small>{label}</small><b>{value}</b></span><small>{tag}</small></div>;
 }
 
 function GuidePage({ onNavigate, onGoHome }: { onNavigate: (route: Route) => void; onGoHome: () => void }) {
@@ -288,19 +373,34 @@ function GuideDetail({ onGoHome }: { onGoHome: () => void }) {
   );
 }
 
-function WithdrawPage({ reason, setReason, agreed, setAgreed, onConfirm }: { reason: string; setReason: (value: string) => void; agreed: boolean; setAgreed: (value: boolean) => void; onConfirm: () => void }) {
+function WithdrawPage({ reason, setReason, agreed, setAgreed, onConfirm, counts }: {
+  reason: string; setReason: (value: string) => void; agreed: boolean; setAgreed: (value: boolean) => void; onConfirm: () => void; counts: { experiences: number };
+}) {
   const reasons = ['자주 사용하지 않아요', '원하는 기능이 없어요', '개인정보가 걱정돼요', '졸업·취업을 했어요', '기타 (직접 입력)'];
+  const [other, setOther] = useState('');
+  const items: [IconName, string][] = [
+    ['list', `저장된 마스터 경험 ${counts.experiences}개 및 경험 분석 결과`], ['upload', '업로드한 원본 파일'],
+    ['edit', '생성한 자기소개서 및 포트폴리오 초안'], ['user', '개인 프로필 및 목표 설정 정보'], ['info', '동의 내역 · 선배에게 남긴 질문 등 계정에 연결된 데이터'],
+  ];
   return (
     <div className="screen settings-content">
-      <section className="withdraw-warning"><b><Icon name="info" size={17} /> 탈퇴 전 꼭 확인해 주세요</b><ul><li>탈퇴하면 이 계정으로 다시 로그인할 수 없어요.</li><li>삭제된 데이터는 복구할 수 없어요.</li><li>수원대학교 포털 연동이 해제돼요.</li><li>데이터 보관·삭제 시점은 정책 확정 후 안내돼요.</li></ul></section>
-      <section className="settings-card"><h2 className="h-sub">삭제되는 데이터</h2>{['저장된 마스터 경험 및 경험 분석 결과', '업로드한 원본 파일', '생성한 이력서 및 포트폴리오 초안', '개인 프로필 및 목표 설정 정보', '기타 개인 계정에 연결된 데이터'].map((item, i) => <p className="delete-item" key={item}><span>{['▣', '▤', '▧', '♙', '▱'][i]}</span>{item}</p>)}</section>
-      <section className="settings-card"><h2 className="h-sub">탈퇴 사유 <small>(선택)</small></h2>{reasons.map((item) => <label className="radio-row" key={item}><input type="radio" name="withdraw-reason" checked={reason === item} onChange={() => setReason(item)} />{item}</label>)}</section>
+      <section className="withdraw-warning"><b><Icon name="info" size={17} /> 탈퇴 전 꼭 확인해 주세요</b><ul><li>탈퇴하면 이 계정으로 다시 로그인할 수 없어요.</li><li>삭제된 데이터는 복구할 수 없어요.</li><li>탈퇴 즉시 서버의 계정과 데이터가 함께 삭제돼요.</li><li>필요한 자료는 먼저 '계정·개인정보 관리'에서 내려받아 두세요.</li></ul></section>
+      <section className="settings-card"><h2 className="h-sub">삭제되는 데이터</h2>{items.map(([icon, item]) => <p className="delete-item" key={item}><Icon name={icon} size={16} />{item}</p>)}</section>
+      <section className="settings-card"><h2 className="h-sub">탈퇴 사유 <small>(선택)</small></h2>{reasons.map((item) => <label className="radio-row" key={item}><input type="radio" name="withdraw-reason" checked={reason === item} onChange={() => setReason(item)} />{item}</label>)}
+        {reason.startsWith('기타') && <textarea className="input" aria-label="탈퇴 사유 직접 입력" maxLength={300} placeholder="불편했던 점을 알려 주세요" value={other} onChange={(e) => setOther(e.target.value)} />}
+      </section>
       <label className="withdraw-agree"><input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />위 내용을 모두 확인했으며, 계정과 데이터 삭제에 동의합니다.</label>
       <button className="btn btn--danger btn--block" disabled={!agreed} onClick={onConfirm}>탈퇴 진행하기</button>
     </div>
   );
 }
 
-function WithdrawComplete({ onClose }: { onClose: () => void }) {
-  return <div className="withdraw-complete"><span><Icon name="check" size={30} /></span><h2>탈퇴가 완료되었어요</h2><p>그동안 STACK을 이용해 주셔서 감사합니다.</p><small>데이터 삭제는 처리 정책에 따라 진행돼요. (정책 확정 후 안내)</small><button className="btn btn--primary btn--block" onClick={onClose}>로그인 화면으로</button><small>3초 후 로그인 화면으로 자동 이동해요</small></div>;
+function WithdrawComplete({ onDone }: { onDone: () => void }) {
+  const [left, setLeft] = useState(3);
+  useEffect(() => {
+    if (left <= 0) { onDone(); return; }
+    const t = setTimeout(() => setLeft(left - 1), 1000);
+    return () => clearTimeout(t);
+  }, [left, onDone]);
+  return <div className="withdraw-complete"><span><Icon name="check" size={30} /></span><h2>탈퇴가 완료되었어요</h2><p>그동안 STACK을 이용해 주셔서 감사합니다.</p><small>계정과 저장된 데이터가 서버에서 삭제되었어요.</small><button className="btn btn--primary btn--block" onClick={onDone}>로그인 화면으로</button><small>{left}초 후 로그인 화면으로 자동 이동해요</small></div>;
 }

@@ -1,6 +1,7 @@
 // 자소서 · 포폴 슬라이드 흐름에서 함께 쓰는 컴포넌트
 // Figma: FlowStepper 컴포넌트, '공고 분석 결과' 카드, thumb/* 미니 일러스트
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { clearPendingPosting, peekPendingPosting } from '../services/pendingPosting';
 import Icon from './Icon';
 import { questionLimitLabel } from '../services/questions';
 import { SegmentTabs } from './Layout';
@@ -125,9 +126,12 @@ const SIZE_LABEL: Record<SlideOptions['size'], string> = { 6: '간단', 10: '기
 
 export function PostingInput(props: PostingInputProps) {
   const { kind, posting, loading, error, onParse } = props;
+  // 탐색 탭에서 '이 공고로 맞춤 서류 만들기'로 넘어오면 공고 내용을 미리 채워요
+  const [seed] = useState(peekPendingPosting);
+  useEffect(() => { if (seed) clearPendingPosting(); }, [seed]);
   const [tab, setTab] = useState<'link' | 'text'>('text');
   const [url, setUrl] = useState('');
-  const [text, setText] = useState('');
+  const [text, setText] = useState(seed?.text ?? '');
 
   return (
     <>
@@ -157,6 +161,7 @@ export function PostingInput(props: PostingInputProps) {
           onChange={(e) => setText(e.target.value)}
         />
       )}
+      {seed && !posting && <p className="notice"><Icon name="info" size={16} />탐색 탭 공고 「{seed.title}」 내용을 넣어 뒀어요. 자소서 문항이 있으면 원문에서 더 붙여 넣어 주세요.</p>}
       {!posting && (
         <button className="btn btn--soft btn--block" disabled={loading || !(tab === 'text' ? text.trim() : url.trim())} onClick={() => onParse(tab === 'text' ? { text } : { url })}>
           {loading ? <><Icon name="loader" className="spin" size={16} /> 공고 읽는 중</> : <><Icon name="sparkle" size={16} /> 공고 분석하기</>}

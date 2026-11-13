@@ -159,7 +159,7 @@ export default function SettingsScreen({ profile, experiences, onClose, onGoHome
       </header>
 
       <div className="settings-route__scroll">
-        {route === 'menu' && <SettingsMenu onNavigate={setRoute} busy={busy} onLogout={() => void run(() => logout())} />}
+        {route === 'menu' && <SettingsMenu onNavigate={setRoute} onEditProfile={onEditProfile} busy={busy} onLogout={() => void run(() => logout())} />}
         {route === 'privacy' && <PrivacyHub onNavigate={setRoute} />}
         {(route === 'privacyPolicy' || route === 'terms' || route === 'aiPolicy') && <PolicyPage key={route} page={route} />}
         {route === 'consents' && (
@@ -194,9 +194,10 @@ export default function SettingsScreen({ profile, experiences, onClose, onGoHome
   );
 }
 
-function SettingsMenu({ onNavigate, onLogout, busy }: { onNavigate: (route: Route) => void; onLogout: () => void; busy: boolean }) {
+function SettingsMenu({ onNavigate, onEditProfile, onLogout, busy }: { onNavigate: (route: Route) => void; onEditProfile: () => void; onLogout: () => void; busy: boolean }) {
   return (
     <div className="screen settings-content">
+      <button className="settings-menu-row" onClick={onEditProfile}><Icon name="target" /><span><b>목표·프로필 보기</b><small>희망 직무 · 목표 기업 수정</small></span><Icon name="chevronR" size={16} /></button>
       <button className="settings-menu-row" onClick={() => onNavigate('privacy')}><Icon name="shield" /><span><b>개인정보 보호 및 보안</b><small>개인정보 처리방침 · 동의 내역</small></span><Icon name="chevronR" size={16} /></button>
       <button className="settings-menu-row" onClick={() => onNavigate('school')}><Icon name="building" /><span><b>학교 인증 관리 (수원대학교)</b><small>학교 메일 인증 정보 확인</small></span><Icon name="chevronR" size={16} /></button>
       <button className="settings-menu-row" onClick={() => onNavigate('guide')}><Icon name="book" /><span><b>서비스 이용 가이드</b><small>경험 등록 및 AI 분석 이용 방법</small></span><Icon name="chevronR" size={16} /></button>

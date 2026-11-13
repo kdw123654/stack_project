@@ -57,8 +57,16 @@ async def health(_: Request):
     return JSONResponse(status, status_code=200 if all(status.values()) else 503)
 
 
+async def index(_: Request):
+    """루트 주소 안내 (여기는 API 서버라 화면이 없어요)."""
+    return JSONResponse({"service": "STACK API gateway", "health": "/health",
+                         "backend": "/backend-api/api/v1/...", "ai": "/ai-api/...",
+                         "docs": ["/backend-api/docs", "/ai-api/docs"]})
+
+
 app = Starlette(
     routes=[
+        Route("/", index),
         Route("/health", health),
         Route("/{prefix}/{path:path}", proxy, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]),
     ],

@@ -1,0 +1,14 @@
+# Render 통합 배포용: A(루트 pyproject.toml의 dependencies) + B(server/requirements.txt)
+# 프로젝트 자체(app 패키지)는 설치하지 않아요 — A·B 둘 다 이름이 app이라 site-packages에 들어가면 헷갈려요.
+-r ../server/requirements.txt
+fastapi>=0.115,<1
+pydantic>=2.9,<3
+uvicorn>=0.30,<1
+python-multipart>=0.0.18,<1
+pypdf>=6,<8
+openai>=2,<3
+pydantic-settings>=2.6,<3
+python-docx>=1.2,<2
+python-pptx>=1,<2
+pypdfium2>=4,<6
+Pillow>=11,<14
